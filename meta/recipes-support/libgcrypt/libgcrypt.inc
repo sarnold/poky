@@ -20,7 +20,9 @@ BINCONFIG = "${bindir}/libgcrypt-config"
 
 inherit autotools-brokensep texinfo binconfig-disabled pkgconfig
 
-EXTRA_OECONF = "--disable-asm --with-capabilities"
+ASFLAGS +="--divide"
+
+EXTRA_OECONF = "--without-capabilities --disable-padlock-support --enable-noexecstack"
 
 do_configure_prepend () {
 	# Else these could be used in prefernce to those in aclocal-copy
