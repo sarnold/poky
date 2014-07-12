@@ -16,7 +16,7 @@
 
 
     <para>
-       <link linkend='var-ALLOW_EMPTY'>A</link>
+       <link linkend='var-ABIEXTENSION'>A</link>
        <link linkend='var-B'>B</link>
        <link linkend='var-CFLAGS'>C</link>
        <link linkend='var-D'>D</link>
@@ -45,6 +45,26 @@
     </para>
 
     <glossdiv id='var-glossary-a'><title>A</title>
+
+        <glossentry id='var-ABIEXTENSION'><glossterm>ABIEXTENSION</glossterm>
+            <glossdef>
+                <para>
+                    Extension to the Application Binary Interface (ABI)
+                    field of the GNU canonical architecture name
+                    (e.g. "eabi").
+                </para>
+
+                <para>
+                   ABI extensions are set in the machine include files.
+                   For example, the
+                   <filename>meta/conf/machine/include/arm/arch-arm.inc</filename>
+                   file sets the following extension:
+                   <literallayout class='monospaced'>
+     ABIEXTENSION = "eabi"
+                   </literallayout>
+                </para>
+            </glossdef>
+        </glossentry>
 
          <glossentry id='var-ALLOW_EMPTY'><glossterm>ALLOW_EMPTY</glossterm>
             <glossdef>
@@ -251,6 +271,34 @@
             </glossdef>
         </glossentry>
 
+        <glossentry id='var-AVAILTUNES'><glossterm>AVAILTUNES</glossterm>
+            <glossdef>
+                <para>
+                    The list of defined CPU and Application Binary Interface
+                    (ABI) tunings (i.e.  "tunes") available for use by the
+                    OpenEmbedded build system.
+                </para>
+
+                <para>
+                    The list simply presents the tunes that are available.
+                    Not all tunes may be compatible with a particular
+                    machine configuration, or with each other in a
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#combining-multiple-versions-library-files-into-one-image'>Multilib</ulink>
+                    configuration.
+                </para>
+
+                <para>
+                    To add a tune to the list, be sure to append it with
+                    spaces using the "+=" BitBake operator.
+                    Do not simply replace the list by using the "=" operator.
+                    See the
+                    "<ulink url='&YOCTO_DOCS_BB_URL;#basic-syntax'>Basic Syntax</ulink>"
+                    section in the BitBake User Manual for more information.
+                </para>
+            </glossdef>
+        </glossentry>
+
+
     </glossdiv>
 
     <glossdiv id='var-glossary-b'><title>B</title>
@@ -322,6 +370,28 @@
                     and the
                     <link linkend='var-PACKAGE_EXCLUDE'><filename>PACKAGE_EXCLUDE</filename></link>
                     variables for related information.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-BASE_LIB'><glossterm>BASE_LIB</glossterm>
+            <glossdef>
+                <para>
+                    The library directory name for the CPU or Application
+                    Binary Interface (ABI) tune.
+                    The <filename>BASE_LIB</filename> applies only in the
+                    Multilib context.
+                    See the
+                    "<ulink url='&YOCTO_DOCS_DEV_URL;#combining-multiple-versions-library-files-into-one-image'>Combining Multiple Versions of Library Files into One Image</ulink>"
+                    section in the Yocto Project Development Manual for
+                    information on Multilib.
+                </para>
+
+                <para>
+                    The <filename>BASE_LIB</filename> variable is defined in
+                    the machine include files in the
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#source-directory'>Source Directory</ulink>.
+                    If Multilib is not being used, the value defaults to "lib".
                 </para>
             </glossdef>
         </glossentry>
@@ -1701,6 +1771,27 @@
                     if that variable is different between two layers
                     that contain different versions of the same recipe.
                 </note>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-DEFAULTTUNE'><glossterm>DEFAULTTUNE</glossterm>
+            <glossdef>
+                <para>
+                    The default CPU and Application Binary Interface (ABI)
+                    tunings (i.e.  the "tune") used by the OpenEmbedded build
+                    system.
+                    The <filename>DEFAULTTUNE</filename> helps define
+                    <link linkend='var-TUNE_FEATURES'><filename>TUNE_FEATURES</filename></link>.
+                </para>
+
+                <para>
+                    The default tune is either implicitly or explicitly set
+                    by the machine
+                    (<link linkend='var-MACHINE'><filename>MACHINE</filename></link>).
+                    However, you can override the setting using available tunes
+                    as defined with
+                    <link linkend='var-AVAILTUNES'><filename>AVAILTUNES</filename></link>.
+                </para>
             </glossdef>
         </glossentry>
 
@@ -3937,6 +4028,19 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
             </glossdef>
         </glossentry>
 
+        <glossentry id='var-INITRD_IMAGE'><glossterm>INITRD_IMAGE</glossterm>
+            <glossdef>
+                <para>
+                    When building a "live" bootable image (i.e. when
+                    <link linkend='var-IMAGE_FSTYPES'><filename>IMAGE_FSTYPES</filename></link>
+                    contains "live"), <filename>INITRD_IMAGE</filename>
+                    specifies the image recipe that should be built
+                    to provide the initial RAM disk image.
+                    The default value is "core-image-minimal-initramfs".
+                </para>
+            </glossdef>
+        </glossentry>
+
         <glossentry id='var-INITSCRIPT_NAME'><glossterm>INITSCRIPT_NAME</glossterm>
             <glossdef>
                 <para>
@@ -3979,6 +4083,12 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
                 <para>
                     The variable is mandatory and is used in recipes when using
                     <filename>update-rc.d.bbclass</filename>.
+                    The value in
+                    <filename>INITSCRIPT_PARAMS</filename> is passed through
+                    to the <filename>update-rc.d</filename> command.
+                    For more information on valid parameters, please see the
+                    <filename>update-rc.d</filename> manual page at
+                    <ulink url='http://www.tin.org/bin/man.cgi?section=8&amp;topic=update-rc.d'></ulink>.
                 </para>
             </glossdef>
         </glossentry>
@@ -4594,6 +4704,46 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
      LICENSE_${PN} = "GPLv2"
      LICENSE_${PN}-doc = "GFDL-1.2"
                     </literallayout>
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-LICENSE_FLAGS'><glossterm>LICENSE_FLAGS</glossterm>
+            <glossdef>
+                <para>
+                    Specifies additional flags for a recipe you must
+                    whitelist through
+                    <link linkend='var-LICENSE_FLAGS_WHITELIST'><filename>LICENSE_FLAGS_WHITELIST</filename></link>
+                    in order to allow the recipe to be built.
+                    When providing multiple flags, separate them with
+                    spaces.
+                </para>
+
+                <para>
+                    This value is independent of
+                    <link linkend='var-LICENSE'><filename>LICENSE</filename></link>
+                    and is typically used to mark recipes that might
+                    require additional licenses in order to be used in a
+                    commercial product.
+                    For more information, see the
+                    "<link linkend='enabling-commercially-licensed-recipes'>Enabling Commercially Licensed Recipes</link>"
+                    section.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-LICENSE_FLAGS_WHITELIST'><glossterm>LICENSE_FLAGS_WHITELIST</glossterm>
+            <glossdef>
+                <para>
+                    Lists license flags that when specified in
+                    <link linkend='var-LICENSE_FLAGS'><filename>LICENSE_FLAGS</filename></link>
+                    within a recipe should not prevent that recipe from being
+                    built.
+                    This practice is otherwise known as "whitelisting"
+                    license flags.
+                    For more information, see the
+                    <link linkend='enabling-commercially-licensed-recipes'>Enabling Commercially Licensed Recipes</link>"
+                    section.
                 </para>
             </glossdef>
         </glossentry>
@@ -5434,9 +5584,9 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
                     what variables are overridden after BitBake parses
                     recipes and configuration files.
                     You can find more information on how overrides are handled
-                    in the BitBake Manual that is located at
-                    <filename>bitbake/doc/manual</filename> in the
-                    <ulink url='&YOCTO_DOCS_DEV_URL;#source-directory'>Source Directory</ulink>.
+                    in the
+                    "<ulink url='&YOCTO_DOCS_BB_URL;#conditional-syntax-overrides'>Conditional Syntax (Overrides)</ulink>"
+                    section of the BitBake User Manual.
                 </para>
             </glossdef>
         </glossentry>
@@ -6333,19 +6483,31 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
             </glossdef>
         </glossentry>
 
-       <glossentry id='var-PROVIDES'><glossterm>PROVIDES</glossterm>
+        <glossentry id='var-PROVIDES'><glossterm>PROVIDES</glossterm>
             <glossdef>
                 <para>
-                    A list of aliases that a recipe also provides.
-                    These aliases are useful for satisfying dependencies of
-                    other recipes during the build (as specified by
-                    <filename><link linkend='var-DEPENDS'>DEPENDS</link></filename>).
-                    <note>
-                        A recipe's own
-                        <filename><link linkend='var-PN'>PN</link></filename>
-                        is implicitly already in its
-                        <filename>PROVIDES</filename> list.
-                    </note>
+                    A list of aliases by which a particular recipe can be
+                    known.
+                    By default, a recipe's own
+                    <filename><link linkend='var-PN'>PN</link></filename>
+                    is implicitly already in its <filename>PROVIDES</filename>
+                    list.
+                    If a recipe uses <filename>PROVIDES</filename>, the
+                    additional aliases are synonyms for the recipe and can
+                    be useful satisfying dependencies of other recipes during
+                    the build as specified by
+                    <filename><link linkend='var-DEPENDS'>DEPENDS</link></filename>.
+                </para>
+
+                <para>
+                    Consider the following example
+                    <filename>PROVIDES</filename> statement from a recipe
+                    file <filename>libav_0.8.11.bb</filename>:
+                    <literallayout class='monospaced'>
+     PROVIDES += "libpostproc"
+                    </literallayout>
+                    The <filename>PROVIDES</filename> statement results in
+                    the "libav" recipe also being known as "libpostproc".
                 </para>
             </glossdef>
         </glossentry>
@@ -6373,6 +6535,21 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
                     You can set <filename>PRSERV_HOST</filename> to other
                     values to use a remote PR service.
                 </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-PTEST_ENABLED'><glossterm>PTEST_ENABLED</glossterm>
+            <glossdef>
+                <para>
+                    Specifies whether or not
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#testing-packages-with-ptest'>Package Test</ulink>
+                    (ptest) functionality is enabled when building a recipe.
+                    You should not set this variable directly.
+                    Enabling and disabling building Package Tests
+                    at build time should be done by adding "ptest" to (or
+                    removing it from)
+                    <link linkend='var-DISTRO_FEATURES'><filename>DISTRO_FEATURES</filename></link>.
+                 </para>
             </glossdef>
         </glossentry>
 
@@ -8157,6 +8334,27 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
             </glossdef>
         </glossentry>
 
+        <glossentry id='var-SYSVINIT_ENABLED_GETTYS'><glossterm>SYSVINIT_ENABLED_GETTYS</glossterm>
+            <glossdef>
+                <para>
+                    When using
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#new-recipe-enabling-system-services'>SysVinit</ulink>,
+                    specifies a space-separated list of the virtual terminals
+                    that should be running a
+                    <ulink url='http://en.wikipedia.org/wiki/Getty_%28Unix%29'>getty</ulink>
+                    (allowing login), assuming
+                    <link linkend='var-USE_VT'><filename>USE_VT</filename></link>
+                    is not set to "0".
+                </para>
+
+                <para>
+                    The default value for
+                    <filename>SYSVINIT_ENABLED_GETTYS</filename> is "1"
+                    (i.e. only run a getty on the first virtual terminal).
+                </para>
+            </glossdef>
+        </glossentry>
+
     </glossdiv>
 
     <glossdiv id='var-glossary-t'><title>T</title>
@@ -8200,6 +8398,26 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
      mips
      mipsel
                     </literallayout>
+                    For additional information on machine architectures, see
+                    the
+                    <link linkend='var-TUNE_ARCH'><filename>TUNE_ARCH</filename></link>
+                    variable.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TARGET_AS_ARCH'><glossterm>TARGET_AS_ARCH</glossterm>
+            <glossdef>
+                <para>
+                    Specifies architecture-specific assembler flags for the
+                    target system.
+                    <filename>TARGET_AS_ARCH</filename> is initialized from
+                    <link linkend='var-TUNE_ASARGS'><filename>TUNE_ASARGS</filename></link>
+                    by default in the BitBake configuration file
+                    (<filename>meta/conf/bitbake.conf</filename>):
+                    <literallayout class='monospaced'>
+     TARGET_AS_ARCH = "${TUNE_ASARGS}"
+                    </literallayout>
                 </para>
             </glossdef>
         </glossentry>
@@ -8220,6 +8438,27 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
                         would not otherwise respect the exported
                         <filename>LDFLAGS</filename> variable.
                     </note>
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TARGET_CC_KERNEL_ARCH'><glossterm>TARGET_CC_KERNEL_ARCH</glossterm>
+            <glossdef>
+                <para>
+                    This is a specific kernel compiler flag for a CPU or
+                    Application Binary Interface (ABI) tune.
+                    The flag is used rarely and only for cases where a
+                    userspace
+                    <link linkend='var-TUNE_CCARGS'><filename>TUNE_CCARGS</filename></link>
+                    is not compatible with the kernel compilation.
+                    The <filename>TARGET_CC_KERNEL_ARCH</filename> variable
+                    allows the kernel (and associated modules) to use a
+                    different configuration.
+                    See the
+                    <filename>meta/conf/machine/include/arm/feature-arm-thumb.inc</filename>
+                    file in the
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#source-directory'>Source Directory</ulink>
+                    for an example.
                 </para>
             </glossdef>
         </glossentry>
@@ -8297,6 +8536,22 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
                     For FPU-less targets, which include most ARM CPUs, the variable must be
                     set to "soft".
                     If not, the kernel emulation gets used, which results in a performance penalty.</para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TARGET_LD_ARCH'><glossterm>TARGET_LD_ARCH</glossterm>
+            <glossdef>
+                <para>
+                    Specifies architecture-specific linker flags for the
+                    target system.
+                    <filename>TARGET_LD_ARCH</filename> is initialized from
+                    <link linkend='var-TUNE_LDARGS'><filename>TUNE_LDARGS</filename></link>
+                    by default in the BitBake configuration file
+                    (<filename>meta/conf/bitbake.conf</filename>):
+                    <literallayout class='monospaced'>
+     TARGET_LD_ARCH = "${TUNE_LDARGS}"
+                    </literallayout>
+                </para>
             </glossdef>
         </glossentry>
 
@@ -8796,6 +9051,85 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
             </glossdef>
         </glossentry>
 
+        <glossentry id='var-TUNE_ARCH'><glossterm>TUNE_ARCH</glossterm>
+            <glossdef>
+                <para>
+                    The GNU canonical architecture for a specific architecture
+                    (i.e. <filename>arm</filename>,
+                    <filename>armeb</filename>,
+                    <filename>mips</filename>,
+                    <filename>mips64</filename>, and so forth).
+                    BitBake uses this value to setup configuration.
+                </para>
+
+                <para>
+                    <filename>TUNE_ARCH</filename> definitions are specific to
+                    a given architecture.
+                    The definitions can be a single static definition, or
+                    can be dynamically adjusted.
+                    You can see details for a given CPU family by looking at
+                    the architecture's <filename>README</filename> file.
+                    For example, the
+                    <filename>meta/conf/machine/include/mips/README</filename>
+                    file in the
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#source-directory'>Source Directory</ulink>
+                    provides information for <filename>TUNE_ARCH</filename>
+                    specific to the <filename>mips</filename> architecture.
+                </para>
+
+                <para>
+                    <filename>TUNE_ARCH</filename> is tied closely to
+                    <link linkend='var-TARGET_ARCH'><filename>TARGET_ARCH</filename></link>,
+                    which defines the target machine's architecture.
+                    The BitBake configuration file
+                    (<filename>meta/conf/bitbake.conf</filename>) sets
+                    <filename>TARGET_ARCH</filename> as follows:
+                    <literallayout class='monospaced'>
+     TARGET_ARCH = "${TUNE_ARCH}"
+                    </literallayout>
+                </para>
+
+                <para>
+                    The following list, which is by no means complete since
+                    architectures are configurable, shows supported machine
+                    architectures:
+                    <literallayout class='monospaced'>
+     arm
+     i586
+     x86_64
+     powerpc
+     powerpc64
+     mips
+     mipsel
+                    </literallayout>
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TUNE_ASARGS'><glossterm>TUNE_ASARGS</glossterm>
+            <glossdef>
+                <para>
+                    Specifies architecture-specific assembler flags for
+                    the target system.
+                    The set of flags is based on the selected tune features.
+                    <filename>TUNE_ASARGS</filename> is set using
+                    the tune include files, which are typically under
+                    <filename>meta/conf/machine/include/</filename> and are
+                    influenced through <filename>TUNE_FEATURES</filename>.
+                    For example, the
+                    <filename>meta/conf/machine/include/x86/arch-x86.inc</filename>
+                    file defines the flags for the x86 architecture as follows:
+                    <literallayout class='monospaced'>
+     TUNE_ASARGS += "${@bb.utils.contains("TUNE_FEATURES", "mx32", "-x32", "", d)}"
+                    </literallayout>
+                    <note>
+                        Board Support Packages (BSPs) can supply their own
+                        set of flags.
+                    </note>
+                </para>
+            </glossdef>
+        </glossentry>
+
         <glossentry id='var-TUNE_CCARGS'><glossterm>TUNE_CCARGS</glossterm>
             <glossdef>
                 <para>
@@ -8814,12 +9148,200 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
             </glossdef>
         </glossentry>
 
+        <glossentry id='var-TUNE_LDARGS'><glossterm>TUNE_LDARGS</glossterm>
+            <glossdef>
+                <para>
+                    Specifies architecture-specific linker flags for
+                    the target system.
+                    The set of flags is based on the selected tune features.
+                    <filename>TUNE_LDARGS</filename> is set using
+                    the tune include files, which are typically under
+                    <filename>meta/conf/machine/include/</filename> and are
+                    influenced through <filename>TUNE_FEATURES</filename>.
+                    For example, the
+                    <filename>meta/conf/machine/include/x86/arch-x86.inc</filename>
+                    file defines the flags for the x86 architecture as follows:
+                    <literallayout class='monospaced'>
+     TUNE_LDARGS += "${@bb.utils.contains("TUNE_FEATURES", "mx32", "-m elf32_x86_64", "", d)}"
+                    </literallayout>
+                    <note>
+                        Board Support Packages (BSPs) can supply their own
+                        set of flags.
+                    </note>
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TUNE_FEATURES'><glossterm>TUNE_FEATURES</glossterm>
+            <glossdef>
+                <para>
+                    Features used to "tune" a compiler for optimal use
+                    given a specific processor.
+                    The features are defined within the tune files and allow
+                    arguments (i.e. <filename>TUNE_*ARGS</filename>) to be
+                    dynamically generated based on the features.
+                </para>
+
+                <para>
+                    The OpenEmbedded build system verifies the features
+                    to be sure they are not conflicting and that they are
+                    supported.
+                </para>
+
+                <para>
+                    The BitBake configuration file
+                    (<filename>meta/conf/bitbake.conf</filename>) defines
+                    <filename>TUNE_FEATURES</filename> as follows:
+                    <literallayout class='monospaced'>
+     TUNE_FEATURES ??= "${TUNE_FEATURES_tune-${DEFAULTTUNE}}"
+                    </literallayout>
+                    See the
+                    <link linkend='var-DEFAULTTUNE'><filename>DEFAULTTUNE</filename></link>
+                    variable for more information.
+                </para>
+            </glossdef>
+        </glossentry>
+
         <glossentry id='var-TUNE_PKGARCH'><glossterm>TUNE_PKGARCH</glossterm>
             <glossdef>
                 <para>
                     The package architecture understood by the packaging
                     system to define the architecture, ABI, and tuning of
                     output packages.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TUNE_PKGARCH_tune'><glossterm>TUNE_PKGARCH_tune</glossterm>
+            <glossdef>
+                <para>
+                    The CPU or Application Binary Interface (ABI) specific
+                    tuning of the
+                    <link linkend='var-TUNE_PKGARCH'><filename>TUNE_PKGARCH</filename></link>.
+                </para>
+
+                <para>
+                    These tune-specific package architectures are defined in
+                    the machine include files.
+                    Here is an example of the "core2-32" tuning as used
+                    in the
+                    <filename>meta/conf/machine/include/tune-core2.inc</filename>
+                    file:
+                    <literallayout class='monospaced'>
+     TUNE_PKGARCH_tune-core2-32 = "core2-32"
+                    </literallayout>
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TUNEABI'><glossterm>TUNEABI</glossterm>
+            <glossdef>
+                <para>
+                    An underlying Application Binary Interface (ABI) used by
+                    a particular tuning in a given toolchain layer.
+                    Providers that use prebuilt libraries can use the
+                    <filename>TUNEABI</filename>,
+                    <link linkend='var-TUNEABI_OVERRIDE'><filename>TUNEABI_OVERRIDE</filename></link>,
+                    and
+                    <link linkend='var-TUNEABI_WHITELIST'><filename>TUNEABI_WHITELIST</filename></link>
+                    variables to check compatibility of tunings against their
+                    selection of libraries.
+                </para>
+
+                <para>
+                    If <filename>TUNEABI</filename> is undefined, then every
+                    tuning is allowed.
+                    See the
+                    <link linkend='ref-classes-sanity'><filename>sanity</filename></link>
+                    class to see how the variable is used.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TUNEABI_OVERRIDE'><glossterm>TUNEABI_OVERRIDE</glossterm>
+            <glossdef>
+                <para>
+                    If set, the OpenEmbedded system ignores the
+                    <link linkend='var-TUNEABI_WHITELIST'><filename>TUNEABI_WHITELIST</filename></link>
+                    variable.
+                    Providers that use prebuilt libraries can use the
+                    <filename>TUNEABI_OVERRIDE</filename>,
+                    <filename>TUNEABI_WHITELIST</filename>,
+                    and
+                    <link linkend='var-TUNEABI'><filename>TUNEABI</filename></link>
+                    variables to check compatibility of a tuning against their
+                    selection of libraries.
+                </para>
+
+                <para>
+                    See the
+                    <link linkend='ref-classes-sanity'><filename>sanity</filename></link>
+                    class to see how the variable is used.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TUNEABI_WHITELIST'><glossterm>TUNEABI_WHITELIST</glossterm>
+            <glossdef>
+                <para>
+                    A whitelist of permissible
+                    <link linkend='var-TUNEABI'><filename>TUNEABI</filename></link>
+                    values.
+                    If <filename>TUNEABI_WHITELIST</filename> is not set,
+                    all tunes are allowed.
+                    Providers that use prebuilt libraries can use the
+                    <filename>TUNEABI_WHITELIST</filename>,
+                    <link linkend='var-TUNEABI_OVERRIDE'><filename>TUNEABI_OVERRIDE</filename></link>,
+                    and <filename>TUNEABI</filename> variables to check
+                    compatibility of a tuning against their selection of
+                    libraries.
+                </para>
+
+                <para>
+                    See the
+                    <link linkend='ref-classes-sanity'><filename>sanity</filename></link>
+                    class to see how the variable is used.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TUNECONFLICT'><glossterm>TUNECONFLICT[&lt;feature&gt;]</glossterm>
+            <glossdef>
+                <para>
+                    Specifies CPU or Application Binary Interface (ABI)
+                    tuning features that conflict with &gt;feature&lt;.
+                </para>
+
+                <para>
+                    Known tuning conflicts are specified in the machine include
+                    files in the
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#source-directory'>Source Directory</ulink>.
+                    Here is an example from the
+                    <filename>meta/conf/machine/include/mips/arch-mips.inc</filename>
+                    include file that lists the "o32" and "n64" features as
+                    conflicting with the "n32" feature:
+                    <literallayout class='monospaced'>
+     TUNECONFLICTS[n32] = "o32 n64"
+                    </literallayout>
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-TUNEVALID'><glossterm>TUNEVALID[&lt;feature&gt;]</glossterm>
+            <glossdef>
+                <para>
+                    Specifies a valid CPU or Application Binary Interface (ABI)
+                    tuning feature.
+                    The specified feature is stored as a flag.
+                    Valid features are specified in the machine include files
+                    (e.g. <filename>meta/conf/machine/include/arm/arch-arm.inc</filename>).
+                    Here is an example from that file:
+                    <literallayout class='monospaced'>
+     TUNEVALID[bigendian] = "Enable big-endian mode."
+                    </literallayout>
+                    See the machine include files in the
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#source-directory'>Source Directory</ulink>
+                    for these features.
                 </para>
             </glossdef>
         </glossentry>
@@ -8961,6 +9483,28 @@ recipes-graphics/xorg-font/font-alias_1.0.3.bb:PR = "${INC_PR}.3"
                     If you do not specifically set this variable, the
                     OpenEmbedded build process passes and uses "all" for the
                     target during the U-Boot building process.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-USE_VT'><glossterm>USE_VT</glossterm>
+            <glossdef>
+                <para>
+                    When using
+                    <ulink url='&YOCTO_DOCS_DEV_URL;#new-recipe-enabling-system-services'>SysVinit</ulink>,
+                    determines whether or not to run a
+                    <ulink url='http://en.wikipedia.org/wiki/Getty_%28Unix%29'>getty</ulink>
+                    on any virtual terminals in order to enable logging in
+                    through those terminals.
+                </para>
+
+                <para>
+                    The default value used for <filename>USE_VT</filename>
+                    is "1" when no default value is specifically set.
+                    Typically, you would set <filename>USE_VT</filename>
+                    to "0" in the machine configuration file for machines
+                    that do not have a graphical display attached and
+                    therefore do not need virtual terminal functionality.
                 </para>
             </glossdef>
         </glossentry>

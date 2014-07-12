@@ -131,8 +131,8 @@ fi
 
 echo_info "Updating opkg..."
 $OPKG_CMD -f $OPKG_CONFIG_FILE -o $NATIVE_INSTALL_DIR update &>> $YOCTOADT_INSTALL_LOG_FILE
-echo_info "opkg update process ended..."
 check_result
+echo_info "opkg update process ended..."
 
 #install below must sdk-host packages
 OPKG_INSTALL_CMD="$OPKG_CMD "
@@ -169,7 +169,7 @@ for target_type in $YOCTOADT_TARGETS; do
   $SUDO sed -i -e "s%##SDKTARGETSYSROOT##%$target_sysroot%g" $env_script
 done
 
-if [ "$YOCTOADT_QEMU" == "Y" ] || [ "$YOCTOADT_QEMU" = "y" ]; then
+if [ "$YOCTOADT_QEMU" == "Y" ] || [ "$YOCTOADT_QEMU" == "y" ]; then
   echo_info "\nInstalling qemu native ..."
   $OPKG_INSTALL_NATIVE_CMD nativesdk-qemu &>> $YOCTOADT_INSTALL_LOG_FILE
   check_result
@@ -213,6 +213,8 @@ if [ -d $NATIVE_INSTALL_DIR/$DEFAULT_INSTALL_FOLDER ]; then
         # go to the next directory
         dir=$(dirname $dir)
     done
+    # Step 3: Rewrite the *.list files to contain the correct paths
+    $SUDO find $NATIVE_INSTALL_DIR/var/lib/opkg -type f -exec sed -i -e '#^$DEFAULT_INSTALL_FOLDER#$NATIVE_INSTALL_DIR#' {} \;
 fi
 
 # Link the ld.so.cache file into the hosts filesystem

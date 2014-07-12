@@ -9,7 +9,7 @@ GCCMULTILIB = "--enable-multilib"
 
 require gcc-configure-common.inc
 
-EXTRA_OECONF_PATHS = "--with-gxx-include-dir=${SDKPATH}/sysroots/${TUNE_PKGARCH}${TARGET_VENDOR}-${TARGET_OS}${target_includedir}/c++ \
+EXTRA_OECONF_PATHS = "--with-gxx-include-dir=${SDKPATH}/sysroots/${TUNE_PKGARCH}${TARGET_VENDOR}-${TARGET_OS}${target_includedir}/c++/${BINV} \
                       --with-build-time-tools=${STAGING_DIR_NATIVE}${prefix_native}/${TARGET_SYS}/bin \
                       --with-sysroot=${SDKPATH}/sysroots/${TUNE_PKGARCH}${TARGET_VENDOR}-${TARGET_OS} \
                       --with-build-sysroot=${STAGING_DIR_TARGET}"
@@ -58,7 +58,7 @@ do_configure () {
 }
 
 do_compile () {
-	oe_runmake all-host
+	oe_runmake all-host configure-target-libgcc
 }
 
 INHIBIT_PACKAGE_STRIP = "1"
@@ -97,6 +97,7 @@ EXEEXT = ""
 BINRELPATH = "${@os.path.relpath(d.expand("${bindir}"), d.expand("${libexecdir}/gcc/${TARGET_SYS}/${BINV}"))}"
 
 do_install () {
+	( cd ${B}/${TARGET_SYS}/libgcc; oe_runmake 'DESTDIR=${D}' install-unwind_h )
 	oe_runmake 'DESTDIR=${D}' install-host
 
 	# Cleanup some of the ${libdir}{,exec}/gcc stuff ...
@@ -137,6 +138,11 @@ do_install () {
 		ln -sf ${BINRELPATH}/${TARGET_PREFIX}$t$suffix $dest$t$suffix
 	done
 
+	# libquadmath headers need to  be available in the gcc libexec dir
+	install -d ${D}${libdir}/gcc/${TARGET_SYS}/${BINV}/include/
+	cp ${S}/libquadmath/quadmath.h ${D}${libdir}/gcc/${TARGET_SYS}/${BINV}/include/
+	cp ${S}/libquadmath/quadmath_weak.h ${D}${libdir}/gcc/${TARGET_SYS}/${BINV}/include/
+
 	chown -R root:root ${D}
 	
 	cross_canadian_bindirlinks
@@ -150,8 +156,9 @@ SYSTEMHEADERS = "/usr/include"
 SYSTEMLIBS = "${target_base_libdir}/"
 SYSTEMLIBS1 = "${target_libdir}/"
 
-EXTRA_OECONF += "--disable-libunwind-exceptions --disable-libssp \
-		--disable-libgomp --disable-libmudflap \
+EXTRA_OECONF += " --enable-poison-system-directories"
+
+EXTRA_OECONF += "--disable-libunwind-exceptions \
 		--with-mpfr=${STAGING_DIR_HOST}${layout_exec_prefix} \
 		--with-mpc=${STAGING_DIR_HOST}${layout_exec_prefix}"
 

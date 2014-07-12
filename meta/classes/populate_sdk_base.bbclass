@@ -55,6 +55,7 @@ fakeroot python do_populate_sdk() {
 
     pn = d.getVar('PN', True)
     runtime_mapping_rename("TOOLCHAIN_TARGET_TASK", pn, d)
+    runtime_mapping_rename("TOOLCHAIN_TARGET_TASK_ATTEMPTONLY", pn, d)
 
     # create target/host SDK manifests
     create_manifest(d, manifest_dir=d.getVar('SDK_DIR', True),
@@ -173,12 +174,9 @@ if [ $verbose = 1 ] ; then
 	set -x
 fi
 
-printf "Enter target directory for SDK (default: $DEFAULT_INSTALL_DIR): "
 if [ "$target_sdk_dir" = "" ]; then
-	read target_sdk_dir
+	read -e -p "Enter target directory for SDK (default: $DEFAULT_INSTALL_DIR): " target_sdk_dir
 	[ "$target_sdk_dir" = "" ] && target_sdk_dir=$DEFAULT_INSTALL_DIR
-else
-	echo "$target_sdk_dir"
 fi
 
 eval target_sdk_dir=$(echo "$target_sdk_dir"|sed 's/ /\\ /g')

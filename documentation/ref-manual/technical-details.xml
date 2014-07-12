@@ -100,7 +100,7 @@
             BitBake chooses the one selected by the distribution configuration.
             You can get more details about how BitBake chooses between different
             target versions and providers in the
-            "<ulink url='&YOCTO_DOCS_BB_URL;#bb-bitbake-providers'>Preferences and Providers</ulink>"
+            "<ulink url='&YOCTO_DOCS_BB_URL;#bb-bitbake-preferences'>Preferences</ulink>"
             section of the BitBake User Manual.
         </para>
 
@@ -1207,8 +1207,9 @@
             components that have commercial or other special licensing
             requirements.
             Such requirements are defined on a
-            recipe-by-recipe basis through the <filename>LICENSE_FLAGS</filename> variable
-            definition in the affected recipe.
+            recipe-by-recipe basis through the
+            <link linkend='var-LICENSE_FLAGS'><filename>LICENSE_FLAGS</filename></link>
+            variable definition in the affected recipe.
             For instance, the
             <filename>poky/meta/recipes-multimedia/gstreamer/gst-plugins-ugly</filename>
             recipe contains the following statement:
@@ -1223,7 +1224,8 @@
 	        In order for a component restricted by a <filename>LICENSE_FLAGS</filename>
 	        definition to be enabled and included in an image, it
 	        needs to have a matching entry in the global
-	        <filename>LICENSE_FLAGS_WHITELIST</filename> variable, which is a variable
+	        <link linkend='var-LICENSE_FLAGS_WHITELIST'><filename>LICENSE_FLAGS_WHITELIST</filename></link>
+            variable, which is a variable
 	        typically defined in your <filename>local.conf</filename> file.
             For example, to enable
 	        the <filename>poky/meta/recipes-multimedia/gstreamer/gst-plugins-ugly</filename>
@@ -1269,8 +1271,9 @@
 		        License flag matching allows you to control what recipes the
                 OpenEmbedded build system includes in the build.
                 Fundamentally, the build system attempts to match
-                <filename>LICENSE_FLAGS</filename> strings found in
-                recipes against <filename>LICENSE_FLAGS_WHITELIST</filename>
+                <link linkend='var-LICENSE_FLAGS'><filename>LICENSE_FLAGS</filename></link>
+                strings found in recipes against
+                <link linkend='var-LICENSE_FLAGS_WHITELIST'><filename>LICENSE_FLAGS_WHITELIST</filename></link>
                 strings found in the whitelist.
                 A match causes the build system to include a recipe in the
                 build, while failure to find a match causes the build system to
@@ -1393,8 +1396,9 @@
                 Of course, you could also create a matching whitelist
                 for those components using the more general "commercial"
                 in the whitelist, but that would also enable all the
-                other packages with <filename>LICENSE_FLAGS</filename> containing
-                "commercial", which you may or may not want:
+                other packages with
+                <link linkend='var-LICENSE_FLAGS'><filename>LICENSE_FLAGS</filename></link>
+                containing "commercial", which you may or may not want:
                 <literallayout class='monospaced'>
      LICENSE_FLAGS_WHITELIST = "commercial"
                 </literallayout>

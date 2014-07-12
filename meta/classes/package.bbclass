@@ -1119,6 +1119,18 @@ python package_fixsymlinks () {
         d.setVar('RDEPENDS_' + pkg, bb.utils.join_deps(rdepends, commasep=False))
 }
 
+
+python package_package_name_hook() {
+    """
+    A package_name_hook function can be used to rewrite the package names by
+    changing PKG.  For an example, see debian.bbclass.
+    """
+    pass
+}
+
+EXPORT_FUNCTIONS package_name_hook
+
+
 PKGDESTWORK = "${WORKDIR}/pkgdata"
 
 python emit_pkgdata() {
@@ -1134,11 +1146,11 @@ python emit_pkgdata() {
         val = d.getVar('%s_%s' % (var, pkg), True)
         if val:
             f.write('%s_%s: %s\n' % (var, pkg, encode(val)))
-            return
+            return val
         val = d.getVar('%s' % (var), True)
         if val:
             f.write('%s: %s\n' % (var, encode(val)))
-        return
+        return val
 
     def write_extra_pkgs(variants, pn, packages, pkgdatadir):
         for variant in variants:
@@ -1207,7 +1219,7 @@ python emit_pkgdata() {
         write_if_exists(sf, pkg, 'DESCRIPTION')
         write_if_exists(sf, pkg, 'SUMMARY')
         write_if_exists(sf, pkg, 'RDEPENDS')
-        write_if_exists(sf, pkg, 'RPROVIDES')
+        rprov = write_if_exists(sf, pkg, 'RPROVIDES')
         write_if_exists(sf, pkg, 'RRECOMMENDS')
         write_if_exists(sf, pkg, 'RSUGGESTS')
         write_if_exists(sf, pkg, 'RREPLACES')
@@ -1235,6 +1247,13 @@ python emit_pkgdata() {
         # Symlinks needed for reverse lookups (from the final package name)
         subdata_sym = pkgdatadir + "/runtime-reverse/%s" % pkgval
         oe.path.symlink("../runtime/%s" % pkg, subdata_sym, True)
+        
+        # Symlinks needed for rprovides lookup
+        if rprov:
+            for p in rprov.strip().split():
+                subdata_sym = pkgdatadir + "/runtime-rprovides/%s/%s" % (p, pkg)
+                bb.utils.mkdirhier(os.path.dirname(subdata_sym))
+                oe.path.symlink("../../runtime/%s" % pkg, subdata_sym, True)
 
         allow_empty = d.getVar('ALLOW_EMPTY_%s' % pkg, True)
         if not allow_empty:
@@ -1254,7 +1273,7 @@ python emit_pkgdata() {
 
     bb.utils.unlockfile(lf)
 }
-emit_pkgdata[dirs] = "${PKGDESTWORK}/runtime ${PKGDESTWORK}/runtime-reverse"
+emit_pkgdata[dirs] = "${PKGDESTWORK}/runtime ${PKGDESTWORK}/runtime-reverse ${PKGDESTWORK}/runtime-rprovides"
 
 ldconfig_postinst_fragment() {
 if [ x"$D" = "x" ]; then
@@ -1326,8 +1345,8 @@ python package_do_filedeps() {
         d.setVar("FILERPROVIDESFLIST_" + pkg, " ".join(provides_files[pkg]))
 }
 
-SHLIBSDIRS = "${PKGDATA_DIR}/${MLPREFIX}shlibs"
-SHLIBSWORKDIR = "${PKGDESTWORK}/${MLPREFIX}shlibs"
+SHLIBSDIRS = "${PKGDATA_DIR}/${MLPREFIX}shlibs2"
+SHLIBSWORKDIR = "${PKGDESTWORK}/${MLPREFIX}shlibs2"
 
 python package_do_shlibs() {
     import re, pipes
@@ -1373,45 +1392,49 @@ python package_do_shlibs() {
                     fd = open(os.path.join(dir, file))
                     lines = fd.readlines()
                     fd.close()
-                    ver_file = os.path.join(dir, dep_pkg + '.ver')
-                    lib_ver = None
-                    if os.path.exists(ver_file):
-                        fd = open(ver_file)
-                        lib_ver = fd.readline().rstrip()
-                        fd.close()
                     for l in lines:
-                        shlib_provider[l.rstrip()] = (dep_pkg, lib_ver)
+                        s = l.strip().split(":")
+                        if s[0] not in shlib_provider:
+                            shlib_provider[s[0]] = {}
+                        shlib_provider[s[0]][s[1]] = (dep_pkg, s[2])
 
-    def linux_so(file):
+    def linux_so(file, needed, sonames, renames, pkgver):
         needs_ldconfig = False
+        ldir = os.path.dirname(file).replace(pkgdest + "/" + pkg, '')
         cmd = d.getVar('OBJDUMP', True) + " -p " + pipes.quote(file) + " 2>/dev/null"
         fd = os.popen(cmd)
         lines = fd.readlines()
         fd.close()
+        rpath = []
+        for l in lines:
+            m = re.match("\s+RPATH\s+([^\s]*)", l)
+            if m:
+                rpaths = m.group(1).replace("$ORIGIN", ldir).split(":")
+                rpath = map(os.path.normpath, rpaths)
         for l in lines:
             m = re.match("\s+NEEDED\s+([^\s]*)", l)
             if m:
-                if m.group(1) not in needed[pkg]:
-                    needed[pkg].append(m.group(1))
-                if m.group(1) not in needed_from:
-                    needed_from[m.group(1)] = []
-                needed_from[m.group(1)].append(file)
+                dep = m.group(1)
+                if dep not in needed[pkg]:
+                    needed[pkg].append((dep, file, rpath))
             m = re.match("\s+SONAME\s+([^\s]*)", l)
             if m:
                 this_soname = m.group(1)
-                if not this_soname in sonames:
+                prov = (this_soname, ldir, pkgver)
+                if not prov in sonames:
                     # if library is private (only used by package) then do not build shlib for it
                     if not private_libs or this_soname not in private_libs:
-                        sonames.append(this_soname)
+                        sonames.append(prov)
                 if libdir_re.match(os.path.dirname(file)):
                     needs_ldconfig = True
                 if snap_symlinks and (os.path.basename(file) != this_soname):
                     renames.append((file, os.path.join(os.path.dirname(file), this_soname)))
         return needs_ldconfig
 
-    def darwin_so(file):
+    def darwin_so(file, needed, sonames, renames, pkgver):
         if not os.path.exists(file):
             return
+        ldir = os.path.dirname(file).replace(pkgdest, '')
 
         def get_combinations(base):
             #
@@ -1433,7 +1456,8 @@ python package_do_shlibs() {
             combos = get_combinations(name)
             for combo in combos:
                 if not combo in sonames:
-                    sonames.append(combo)
+                    prov = (combo, ldir, pkgver)
+                    sonames.append(prov)
         if file.endswith('.dylib') or file.endswith('.so'):
             lafile = file.replace(os.path.join(pkgdest, pkg), d.getVar('PKGD', True))
             # Drop suffix
@@ -1464,14 +1488,8 @@ python package_do_shlibs() {
                                 name = os.path.basename(dep).replace(".la", "")
                             elif dep.startswith("-l"):
                                 name = dep.replace("-l", "lib")
-                            if pkg not in needed:
-                                needed[pkg] = []
                             if name and name not in needed[pkg]:
-                                needed[pkg].append(name)
-                            if name not in needed_from:
-                                needed_from[name] = []
-                            if lafile and lafile not in needed_from[name]:
-                                needed_from[name].append(lafile)
+                                needed[pkg].append((name, lafile, []))
                                 #bb.note("Adding %s for %s" % (name, pkg))
 
     if d.getVar('PACKAGE_SNAP_LIB_SYMLINKS', True) == "1":
@@ -1485,7 +1503,6 @@ python package_do_shlibs() {
         use_ldconfig = False
 
     needed = {}
-    needed_from = {}
     shlib_provider = {}
     read_shlib_providers()
 
@@ -1509,9 +1526,9 @@ python package_do_shlibs() {
                 if cpath.islink(file):
                     continue
                 if targetos == "darwin" or targetos == "darwin8":
-                    darwin_so(file)
+                    darwin_so(file, needed, sonames, renames, pkgver)
                 elif os.access(file, os.X_OK) or lib_re.match(file):
-                    ldconfig = linux_so(file)
+                    ldconfig = linux_so(file, needed, sonames, renames, pkgver)
                     needs_ldconfig = needs_ldconfig or ldconfig
         for (old, new) in renames:
             bb.note("Renaming %s to %s" % (old, new))
@@ -1519,20 +1536,18 @@ python package_do_shlibs() {
             pkgfiles[pkg].remove(old)
 	    
         shlibs_file = os.path.join(shlibswork_dir, pkg + ".list")
-        shver_file = os.path.join(shlibswork_dir, pkg + ".ver")
         if len(sonames):
             fd = open(shlibs_file, 'w')
             for s in sonames:
-                if s in shlib_provider:
-                    (old_pkg, old_pkgver) = shlib_provider[s]
+                if s[0] in shlib_provider and s[1] in shlib_provider[s[0]]:
+                    (old_pkg, old_pkgver) = shlib_provider[s[0]][s[1]]
                     if old_pkg != pkg:
-                        bb.warn('%s-%s was registered as shlib provider for %s, changing it to %s-%s because it was built later' % (old_pkg, old_pkgver, s, pkg, pkgver))
-                bb.debug(1, 'registering %s-%s as shlib provider for %s' % (pkg, pkgver, s))
-                fd.write(s + '\n')
-                shlib_provider[s] = (pkg, pkgver)
-            fd.close()
-            fd = open(shver_file, 'w')
-            fd.write(pkgver + '\n')
+                        bb.warn('%s-%s was registered as shlib provider for %s, changing it to %s-%s because it was built later' % (old_pkg, old_pkgver, s[0], pkg, pkgver))
+                bb.debug(1, 'registering %s-%s as shlib provider for %s' % (pkg, pkgver, s[0]))
+                fd.write(s[0] + ':' + s[1] + ':' + s[2] + '\n')
+                if s[0] not in shlib_provider:
+                    shlib_provider[s[0]] = {}
+                shlib_provider[s[0]][s[1]] = (pkg, pkgver)
             fd.close()
         if needs_ldconfig and use_ldconfig:
             bb.debug(1, 'adding ldconfig call to postinst for %s' % pkg)
@@ -1547,6 +1562,7 @@ python package_do_shlibs() {
 
     assumed_libs = d.getVar('ASSUME_SHLIBS', True)
     if assumed_libs:
+        libdir = d.getVar("libdir", True)
         for e in assumed_libs.split():
             l, dep_pkg = e.split(":")
             lib_ver = None
@@ -1554,7 +1570,9 @@ python package_do_shlibs() {
             if len(dep_pkg) == 2:
                 lib_ver = dep_pkg[1]
             dep_pkg = dep_pkg[0]
-            shlib_provider[l] = (dep_pkg, lib_ver)
+            shlib_provider[l][libdir] = (dep_pkg, lib_ver)
+
+    libsearchpath = [d.getVar('libdir', True), d.getVar('base_libdir', True)]
 
     for pkg in packages.split():
         bb.debug(2, "calculating shlib requirements for %s" % pkg)
@@ -1567,24 +1585,30 @@ python package_do_shlibs() {
             # but skipping it is still better alternative than providing own
             # version and then adding runtime dependency for the same system library
             if private_libs and n in private_libs:
-                bb.debug(2, '%s: Dependency %s covered by PRIVATE_LIBS' % (pkg, n))
+                bb.debug(2, '%s: Dependency %s covered by PRIVATE_LIBS' % (pkg, n[0]))
                 continue
-            if n in shlib_provider.keys():
-                (dep_pkg, ver_needed) = shlib_provider[n]
+            if n[0] in shlib_provider.keys():
+                match = None
+                for p in n[2] + libsearchpath:
+                    if p in shlib_provider[n[0]]:
+                        match = p
+                        break
+                if match:
+                    (dep_pkg, ver_needed) = shlib_provider[n[0]][match]
 
-                bb.debug(2, '%s: Dependency %s requires package %s (used by files: %s)' % (pkg, n, dep_pkg, needed_from[n]))
+                    bb.debug(2, '%s: Dependency %s requires package %s (used by files: %s)' % (pkg, n[0], dep_pkg, n[1]))
 
-                if dep_pkg == pkg:
+                    if dep_pkg == pkg:
+                        continue
+
+                    if ver_needed:
+                        dep = "%s (>= %s)" % (dep_pkg, ver_needed)
+                    else:
+                        dep = dep_pkg
+                    if not dep in deps:
+                        deps.append(dep)
                     continue
-
-                if ver_needed:
-                    dep = "%s (>= %s)" % (dep_pkg, ver_needed)
-                else:
-                    dep = dep_pkg
-                if not dep in deps:
-                    deps.append(dep)
-            else:
-                bb.note("Couldn't find shared library provider for %s, used by files: %s" % (n, needed_from[n]))
+            bb.note("Couldn't find shared library provider for %s, used by files: %s" % (n[0], n[1]))
 
         deps_file = os.path.join(pkgdest, pkg + ".shlibdeps")
         if os.path.exists(deps_file):
