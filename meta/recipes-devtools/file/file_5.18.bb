@@ -12,18 +12,13 @@ DEPENDS = "zlib file-native"
 DEPENDS_class-native = "zlib-native"
 
 SRC_URI = "ftp://ftp.astron.com/pub/file/file-${PV}.tar.gz \
-           file://dump \
-           file://filesystems"
+           file://debian-742262.patch \
+          "
 
 SRC_URI[md5sum] = "d420d8f2990cd344673acfbf8d76ff5a"
 SRC_URI[sha256sum] = "6519fb706d583231c2419592ebecdbb21d33c62eaf7a1a0b24ddfcb80c08bf07"
 
 inherit autotools
-
-do_configure_prepend() {
-	cp ${WORKDIR}/dump ${S}/magic/Magdir/
-	cp ${WORKDIR}/filesystems ${S}/magic/Magdir/
-}
 
 FILES_${PN} += "${datadir}/misc/*.mgc"
 
@@ -31,6 +26,5 @@ do_install_append_class-native() {
 	create_cmdline_wrapper ${D}/${bindir}/file \
 		--magic-file ${datadir}/misc/magic.mgc
 }
-
 
 BBCLASSEXTEND = "native nativesdk"

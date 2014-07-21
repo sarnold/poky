@@ -91,13 +91,17 @@ def main(server, eventHandler, params ):
     errors = 0
     warnings = 0
     taskfailures = []
+    first = True
 
     buildinfohelper = BuildInfoHelper(server, build_history_enabled)
-
+    brbe = None
 
     while True:
         try:
             event = eventHandler.waitEvent(0.25)
+            if first:
+                first = False
+                logger.info("ToasterUI waiting for events")
 
             if event is None:
                 if main.shutdown > 0:
@@ -107,7 +111,7 @@ def main(server, eventHandler, params ):
             helper.eventHandler(event)
 
             if isinstance(event, bb.event.BuildStarted):
-                buildinfohelper.store_started_build(event)
+                brbe = buildinfohelper.store_started_build(event)
 
             if isinstance(event, (bb.build.TaskStarted, bb.build.TaskSucceeded, bb.build.TaskFailedSilent)):
                 buildinfohelper.update_and_store_task(event)
@@ -227,10 +231,9 @@ def main(server, eventHandler, params ):
                 buildinfohelper.update_build_information(event, errors, warnings, taskfailures)
 
 
-                brbe = server.runCommand(["getVariable", "TOASTER_BRBE"])[0]
-                br_id, be_id = brbe.split(":")
                 # we start a new build info
                 if brbe is not None:
+                    br_id, be_id = brbe.split(":")
                     buildinfohelper.store_build_done(br_id, be_id)
 
                     print "we are under BuildEnvironment management - after the build, we exit"

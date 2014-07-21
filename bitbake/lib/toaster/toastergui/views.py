@@ -22,11 +22,13 @@
 import operator,re
 
 from django.db.models import Q, Sum
+from django.db import IntegrityError
 from django.shortcuts import render, redirect
 from orm.models import Build, Target, Task, Layer, Layer_Version, Recipe, LogMessage, Variable
 from orm.models import Task_Dependency, Recipe_Dependency, Package, Package_File, Package_Dependency
 from orm.models import Target_Installed_Package, Target_File, Target_Image_File
 from django.views.decorators.cache import cache_control
+from django.core.urlresolvers import reverse
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.http import HttpResponseBadRequest
 from django.utils import timezone
@@ -68,7 +70,6 @@ def _verify_parameters(g, mandatory_parameters):
 
 def _redirect_parameters(view, g, mandatory_parameters, *args, **kwargs):
     import urllib
-    from django.core.urlresolvers import reverse
     url = reverse(view, kwargs=kwargs)
     params = {}
     for i in g:
@@ -301,9 +302,9 @@ def builds(request):
                  'filter' : {'class' : 'started_on',
                              'label': 'Show:',
                              'options' : [
-                                         ("Today's builds" , 'started_on__gte:'+timezone.now().strftime("%Y-%m-%d"), queryset_with_search.filter(started_on__gte=timezone.now().strftime("%Y-%m-%d")).count()),
-                                         ("Yesterday's builds", 'started_on__gte:'+(timezone.now()-timedelta(hours=24)).strftime("%Y-%m-%d"), queryset_with_search.filter(started_on__gte=(timezone.now()-timedelta(hours=24)).strftime("%Y-%m-%d")).count()),
-                                         ("This week's builds", 'started_on__gte:'+(timezone.now()-timedelta(days=7)).strftime("%Y-%m-%d"), queryset_with_search.filter(started_on__gte=(timezone.now()-timedelta(days=7)).strftime("%Y-%m-%d")).count()),
+                                         ("Today's builds" , 'started_on__gte:'+timezone.now().strftime("%Y-%m-%d"), queryset_with_search.filter(started_on__gte=timezone.now()).count()),
+                                         ("Yesterday's builds", 'started_on__gte:'+(timezone.now()-timedelta(hours=24)).strftime("%Y-%m-%d"), queryset_with_search.filter(started_on__gte=(timezone.now()-timedelta(hours=24))).count()),
+                                         ("This week's builds", 'started_on__gte:'+(timezone.now()-timedelta(days=7)).strftime("%Y-%m-%d"), queryset_with_search.filter(started_on__gte=(timezone.now()-timedelta(days=7))).count()),
                                          ]
                             }
                 },
@@ -315,9 +316,9 @@ def builds(request):
                  'filter' : {'class' : 'completed_on',
                              'label': 'Show:',
                              'options' : [
-                                         ("Today's builds", 'completed_on__gte:'+timezone.now().strftime("%Y-%m-%d"), queryset_with_search.filter(completed_on__gte=timezone.now().strftime("%Y-%m-%d")).count()),
-                                         ("Yesterday's builds", 'completed_on__gte:'+(timezone.now()-timedelta(hours=24)).strftime("%Y-%m-%d"), queryset_with_search.filter(completed_on__gte=(timezone.now()-timedelta(hours=24)).strftime("%Y-%m-%d")).count()),
-                                         ("This week's builds", 'completed_on__gte:'+(timezone.now()-timedelta(days=7)).strftime("%Y-%m-%d"), queryset_with_search.filter(completed_on__gte=(timezone.now()-timedelta(days=7)).strftime("%Y-%m-%d")).count()),
+                                         ("Today's builds", 'completed_on__gte:'+timezone.now().strftime("%Y-%m-%d"), queryset_with_search.filter(completed_on__gte=timezone.now()).count()),
+                                         ("Yesterday's builds", 'completed_on__gte:'+(timezone.now()-timedelta(hours=24)).strftime("%Y-%m-%d"), queryset_with_search.filter(completed_on__gte=(timezone.now()-timedelta(hours=24))).count()),
+                                         ("This week's builds", 'completed_on__gte:'+(timezone.now()-timedelta(days=7)).strftime("%Y-%m-%d"), queryset_with_search.filter(completed_on__gte=(timezone.now()-timedelta(days=7))).count()),
                                          ]
                             }
                 },
@@ -429,7 +430,7 @@ def builddashboard( request, build_id ):
                 ndx = 0;
             f = i.file_name[ ndx + 1: ]
             imageFiles.append({ 'path': f, 'size' : i.file_size })
-        if ( t.is_image and 
+        if ( t.is_image and
              (( len( imageFiles ) <= 0 ) or ( len( t.license_manifest_path ) <= 0 ))):
             targetHasNoImages = True
         elem[ 'imageFiles' ] = imageFiles
@@ -516,8 +517,8 @@ def task( request, build_id, task_id ):
     }
     if request.GET.get( 'show_matches', "" ):
         context[ 'showing_matches' ] = True
-        context[ 'matching_tasks' ] = Task.objects.filter( 
-            sstate_checksum=task.sstate_checksum ).filter( 
+        context[ 'matching_tasks' ] = Task.objects.filter(
+            sstate_checksum=task.sstate_checksum ).filter(
             build__completed_on__lt=task.build.completed_on).exclude(
             order__isnull=True).exclude(outcome=Task.OUTCOME_NA).order_by('-build__completed_on')
 
@@ -551,14 +552,14 @@ def target_common( request, build_id, target_id, variant ):
     mandatory_parameters = { 'count': 25,  'page' : 1, 'orderby':'name:+'};
     retval = _verify_parameters( request.GET, mandatory_parameters )
     if retval:
-        return _redirect_parameters( 
-                    variant, request.GET, mandatory_parameters, 
+        return _redirect_parameters(
+                    variant, request.GET, mandatory_parameters,
                     build_id = build_id, target_id = target_id )
     ( filter_string, search_term, ordering_string ) = _search_tuple( request, Package )
 
     # FUTURE:  get rid of nested sub-queries replacing with ManyToMany field
     queryset = Package.objects.filter(
-                    size__gte = 0, 
+                    size__gte = 0,
                     id__in = Target_Installed_Package.objects.filter(
                         target_id=target_id ).values( 'package_id' ))
     packages_sum =  queryset.aggregate( Sum( 'installed_size' ))
@@ -682,7 +683,7 @@ his package',
         'clclass'    : 'layer_directory',
         'hidden'     : 1,
         }
-    context = { 
+    context = {
         'objectname': variant,
         'build'                : Build.objects.filter( pk = build_id )[ 0 ],
         'target'               : Target.objects.filter( pk = target_id )[ 0 ],
@@ -1758,3 +1759,89 @@ def image_information_dir(request, build_id, target_id, packagefile_id):
     # stubbed for now
     return redirect(builds)
 
+
+import toastermain.settings
+def managedcontextprocessor(request):
+    return { "MANAGED" : toastermain.settings.MANAGED }
+
+
+# we have a set of functions if we're in managed mode, or
+# a default "page not available" simple functions for interactive mode
+if toastermain.settings.MANAGED:
+
+    from django.contrib.auth.models import User
+    from django.contrib.auth import authenticate, login
+    from django.contrib.auth.decorators import login_required
+
+    import traceback
+
+    class BadParameterException(Exception): pass        # error thrown on invalid POST requests
+
+    # the context processor that supplies data used across all the pages
+    def managedcontextprocessor(request):
+        return {
+            "projects": Project.objects.all(),
+            "MANAGED" : toastermain.settings.MANAGED
+        }
+
+    # new project
+    def newproject(request):
+        template = "newproject.html"
+        context = {
+            'email': request.user.email if request.user.is_authenticated() else '',
+            'username': request.user.username if request.user.is_authenticated() else '',
+        }
+
+
+        if request.method == "GET":
+            # render new project page
+            return render(request, template, context)
+        elif request.method == "POST":
+            mandatory_fields = ['projectname', 'email', 'username', 'projectversion']
+            try:
+                # make sure we have values for all mandatory_fields
+                if reduce( lambda x, y: x or y, map(lambda x: len(request.POST.get(x, '')) == 0, mandatory_fields)):
+                # set alert for missing fields
+                    raise BadParameterException("Fields missing: " +
+            ", ".join([x for x in mandatory_fields if len(request.POST.get(x, '')) == 0 ]))
+
+                if not request.user.is_authenticated():
+                    user = authenticate(username = request.POST['username'], password = 'nopass')
+                    if user is None:
+                        user = User.objects.create_user(username = request.POST['username'], email = request.POST['email'], password = "nopass")
+
+                        user = authenticate(username = user.username, password = 'nopass')
+                    login(request, user)
+
+                #  save the project
+                prj = Project.objects.create_project(name = request.POST['projectname'],
+                    branch = request.POST['projectversion'].split(" ")[0],
+                    short_description=request.POST['projectversion'].split(" ")[1:])
+                prj.user_id = request.user.pk
+                prj.save()
+                return redirect(reverse(project, args = (prj.pk,)))
+
+            except (IntegrityError, BadParameterException) as e:
+                # fill in page with previously submitted values
+                map(lambda x: context.__setitem__(x, request.POST[x]), mandatory_fields)
+                if isinstance(e, IntegrityError) and "username" in str(e):
+                    context['alert'] = "Your chosen username is already used"
+                else:
+                    context['alert'] = str(e)
+                return render(request, template, context)
+        raise Exception("Invalid HTTP method for this page")
+
+    # Shows the edit project page
+    def project(request, pid):
+        template = "project.html"
+        context = {}
+        return render(request, template, context)
+
+
+else:
+    # these are pages that are NOT available in interactive mode
+    def newproject(request):
+        raise Exception("page not available in interactive mode")
+
+    def project(request):
+        raise Exception("page not available in interactive mode")

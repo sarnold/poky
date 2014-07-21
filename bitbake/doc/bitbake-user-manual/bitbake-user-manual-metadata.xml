@@ -159,6 +159,10 @@
                 using the "+=" and "=+" operators.
                 These operators insert a space between the current
                 value and prepended or appended value.
+            </para>
+
+            <para>
+                These operators take immediate effect during parsing.
                 Here are some examples:
                 <literallayout class='monospaced'>
      B = "bval"
@@ -178,6 +182,10 @@
             <para>
                 If you want to append or prepend values without an
                 inserted space, use the ".=" and "=." operators.
+            </para>
+
+            <para>
+                These operators take immediate effect during parsing.
                 Here are some examples:
                 <literallayout class='monospaced'>
      B = "bval"
@@ -198,6 +206,13 @@
                 You can also append and prepend a variable's value
                 using an override style syntax.
                 When you use this syntax, no spaces are inserted.
+            </para>
+
+            <para>
+                These operators differ from the ":=", ".=", "=.", "+=", and "=+"
+                operators in that their effects are deferred
+                until after parsing completes rather than being immediately
+                applied.
                 Here are some examples:
                 <literallayout class='monospaced'>
      B = "bval"
@@ -216,13 +231,6 @@
                     You must control all spacing when you use the
                     override syntax.
                 </note>
-            </para>
-
-            <para>
-                The operators "_append" and "_prepend" differ from
-                the operators ".=" and "=." in that they are deferred
-                until after parsing completes rather than being immediately
-                applied.
             </para>
         </section>
 
@@ -285,6 +293,17 @@
                 The flags are immediately set to "abc" and "123", respectively.
                 The <filename>a</filename> flag becomes "abc456".
             </para>
+
+            <para>
+                No need exists to pre-define variable flags.
+                You can simply start using them.
+                One extremely common application
+                is to attach some brief documentation to a BitBake variable as
+                follows:
+                <literallayout class='monospaced'>
+     CACHE[doc] = "The directory holding the cache of the metadata."
+                </literallayout>
+            </para>
         </section>
 
         <section id='inline-python-variable-expansion'>
@@ -298,7 +317,19 @@
      DATE = "${@time.strftime('%Y%m%d',time.gmtime())}"
                 </literallayout>
                 This example results in the <filename>DATE</filename>
-                variable becoming the current date.
+                variable being set to the current date.
+            </para>
+
+            <para>
+                Probably the most common use of this feature is to extract
+                the value of variables from BitBake's internal data dictionary,
+                <filename>d</filename>.
+                The following lines select the values of a package name
+                and its version number, respectively:
+                <literallayout class='monospaced'>
+     PN = "${@bb.parse.BBHandler.vars_from_file(d.getVar('FILE'),d)[0] or 'defaultpkgname'}"
+     PV = "${@bb.parse.BBHandler.vars_from_file(d.getVar('FILE'),d)[1] or '1.0'}"
+                </literallayout>
             </para>
         </section>
 
@@ -372,6 +403,25 @@
                         You select the os-specific version of the <filename>TEST</filename>
                         variable by appending the "os" override to the variable
                         (i.e.<filename>TEST_os</filename>).
+                        </para>
+
+                        <para>
+                            To better understand this, consider a practical example
+                            that assumes an OpenEmbedded metadata-based Linux
+                            kernel recipe file.
+                            The following lines from the recipe file first set
+                            the kernel branch variable <filename>KBRANCH</filename>
+                            to a default value, then conditionally override that
+                            value based on the architecture of the build:
+                        <literallayout class='monospaced'>
+     KBRANCH = "standard/base"
+     KBRANCH_qemuarm  = "standard/arm-versatile-926ejs"
+     KBRANCH_qemumips = "standard/mti-malta32"
+     KBRANCH_qemuppc  = "standard/qemuppc"
+     KBRANCH_qemux86  = "standard/common-pc/base"
+     KBRANCH_qemux86-64  = "standard/common-pc-64/base"
+     KBRANCH_qemumips64 = "standard/mti-malta64"
+                        </literallayout>
                         </para></listitem>
                     <listitem><para><emphasis>Appending and Prepending:</emphasis>
                         BitBake also supports append and prepend operations to
@@ -385,6 +435,19 @@
                         </literallayout>
                         In this example, <filename>DEPENDS</filename> becomes
                         "glibc ncurses libmad".
+                        </para>
+
+                        <para>
+                            Again, using an OpenEmbedded metadata-based
+                            kernel recipe file as an example, the
+                            following lines will conditionally append to the
+                            <filename>KERNEL_FEATURES</filename> variable based
+                            on the architecture:
+                        <literallayout class='monospaced'>
+     KERNEL_FEATURES_append = " ${KERNEL_EXTRA_FEATURES}"
+     KERNEL_FEATURES_append_qemux86=" cfg/sound.scc cfg/paravirt_kvm.scc"
+     KERNEL_FEATURES_append_qemux86-64=" cfg/sound.scc cfg/paravirt_kvm.scc"
+                        </literallayout>
                         </para></listitem>
                 </itemizedlist>
             </para>
@@ -1140,12 +1203,6 @@
                     Tells BitBake to not generate a stamp file for a task,
                     which implies the task should always be executed.
                     </para></listitem>
-                <listitem><para><emphasis>fakeroot:</emphasis>
-                    Causes a task to be run in a fakeroot environment,
-                    obtained by adding the variables in
-                    <link linkend='var-FAKEROOTENV'><filename>FAKEROOTENV</filename></link>
-                    to the environment.
-                    </para></listitem>
                 <listitem><para><emphasis>umask:</emphasis>
                     The umask to run the task under.
                     </para></listitem>
@@ -1466,9 +1523,9 @@
                 complete before that task can be executed.
                 Here is an example:
                 <literallayout class='monospaced'>
-     do_configure[deptask] = "do_populate_staging"
+     do_configure[deptask] = "do_populate_sysroot"
                 </literallayout>
-                In this example, the <filename>do_populate_staging</filename>
+                In this example, the <filename>do_populate_sysroot</filename>
                 task of each item in <filename>DEPENDS</filename> must complete before
                 <filename>do_configure</filename> can execute.
             </para>
@@ -1543,9 +1600,9 @@
                 the data in <filename>DEPENDS</filename>.
                 Here is an example:
                 <literallayout class='monospaced'>
-     do_patch[depends] = "quilt-native:do_populate_staging"
+     do_patch[depends] = "quilt-native:do_populate_sysroot"
                 </literallayout>
-                In this example, the <filename>do_populate_staging</filename>
+                In this example, the <filename>do_populate_sysroot</filename>
                 task of the target <filename>quilt-native</filename>
                 must have completed before the
                 <filename>do_patch</filename> task can execute.

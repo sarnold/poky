@@ -17,12 +17,12 @@ do_populate_lic[dirs] = "${LICSSTATEDIR}/${PN}"
 do_populate_lic[cleandirs] = "${LICSSTATEDIR}"
 
 python write_package_manifest() {
-	# Get list of installed packages
-	license_image_dir = d.expand('${LICENSE_DIRECTORY}/${IMAGE_NAME}')
-	bb.utils.mkdirhier(license_image_dir)
-	from oe.rootfs import image_list_installed_packages
-	open(os.path.join(license_image_dir, 'package.manifest'),
-         'w+').write(image_list_installed_packages(d))
+    # Get list of installed packages
+    license_image_dir = d.expand('${LICENSE_DIRECTORY}/${IMAGE_NAME}')
+    bb.utils.mkdirhier(license_image_dir)
+    from oe.rootfs import image_list_installed_packages
+    open(os.path.join(license_image_dir, 'package.manifest'),
+        'w+').write(image_list_installed_packages(d))
 }
 
 license_create_manifest() {
@@ -264,10 +264,18 @@ def return_spdx(d, license):
      """
     return d.getVarFlag('SPDXLICENSEMAP', license, True)
 
+def canonical_license(d, license):
+    """
+    Return the canonical (SPDX) form of the license if available (so GPLv3
+    becomes GPL-3.0), or the passed license if there is no canonical form.
+    """
+    return d.getVarFlag('SPDXLICENSEMAP', license, True) or license
+
 def incompatible_license(d, dont_want_licenses, package=None):
     """
-    This function checks if a recipe has only incompatible licenses. It also take into consideration 'or'
-    operand.
+    This function checks if a recipe has only incompatible licenses. It also
+    take into consideration 'or' operand.  dont_want_licenses should be passed
+    as canonical (SPDX) names.
     """
     import re
     import oe.license
@@ -298,7 +306,7 @@ def incompatible_license(d, dont_want_licenses, package=None):
         licenses = oe.license.flattened_licenses(license, choose_lic_set)
     except oe.license.LicenseError as exc:
         bb.fatal('%s: %s' % (d.getVar('P', True), exc))
-    return any(not license_ok(l) for l in licenses)
+    return any(not license_ok(canonical_license(d, l)) for l in licenses)
 
 def check_license_flags(d):
     """
