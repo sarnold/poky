@@ -37,13 +37,15 @@ class ProjectManager(models.Manager):
             name = "meta",
             giturl = "git://git.yoctoproject.org/poky",
             commit = branch,
-            treepath = "meta")
+            dirpath = "meta",
+            optional = False)
 
         ProjectLayer.objects.create(project = prj,
             name = "meta-yocto",
             giturl = "git://git.yoctoproject.org/poky",
             commit = branch,
-            treepath = "meta-yocto")
+            dirpath = "meta-yocto",
+            optional = False)
 
         return prj
 
@@ -65,6 +67,22 @@ class Project(models.Model):
     # hard links to possibly missing models
     user_id     = models.IntegerField(null = True)
     objects     = ProjectManager()
+
+
+    def schedule_build(self):
+        from bldcontrol.models import BuildRequest, BRTarget, BRLayer, BRVariable
+        br = BuildRequest.objects.create(project = self)
+        for l in self.projectlayer_set.all():
+            BRLayer.objects.create(req = br, name = l.name, giturl = l.giturl, commit = l.commit, dirpath = l.dirpath)
+        for t in self.projecttarget_set.all():
+            BRTarget.objects.create(req = br, target = t.target, task = t.task)
+        for v in self.projectvariable_set.all():
+            BRVariable.objects.create(req = br, name = v.name, value = v.value)
+
+        br.state = BuildRequest.REQ_QUEUED
+        br.save()
+        return br
+
 
 class Build(models.Model):
     SUCCEEDED = 0
@@ -100,6 +118,7 @@ class Build(models.Model):
 class ProjectTarget(models.Model):
     project = models.ForeignKey(Project)
     target = models.CharField(max_length=100)
+    task = models.CharField(max_length=100, null=True)
 
 @python_2_unicode_compatible
 class Target(models.Model):
@@ -375,6 +394,8 @@ class ProjectLayer(models.Model):
     name = models.CharField(max_length = 100)
     giturl = models.CharField(max_length = 254)
     commit = models.CharField(max_length = 254)
+    dirpath = models.CharField(max_length = 254)
+    optional = models.BooleanField(default = True)
 
 class Layer(models.Model):
     name = models.CharField(max_length=100)

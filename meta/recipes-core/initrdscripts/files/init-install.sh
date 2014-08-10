@@ -16,6 +16,7 @@ swap_ratio=5
 # Get a list of hard drives
 hdnamelist=""
 live_dev_name=${1%%/*}
+live_dev_name=${live_dev_name%%[0-9]*}
 
 echo "Searching for hard drives ..."
 
@@ -23,6 +24,9 @@ for device in `ls /sys/block/`; do
     case $device in
 	loop*)
             # skip loop device
+	    ;;
+	sr*)
+            # skip CDROM device
 	    ;;
 	ram*)
             # skip ram device

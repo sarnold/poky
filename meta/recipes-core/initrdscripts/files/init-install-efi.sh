@@ -17,6 +17,7 @@ swap_ratio=5
 # Get a list of hard drives
 hdnamelist=""
 live_dev_name=${1%%/*}
+live_dev_name=${live_dev_name%%[0-9]*}
 
 echo "Searching for hard drives ..."
 
@@ -24,6 +25,9 @@ for device in `ls /sys/block/`; do
     case $device in
 	loop*)
             # skip loop device
+	    ;;
+	sr*)
+            # skip CDROM device
 	    ;;
 	ram*)
             # skip ram device
@@ -47,9 +51,14 @@ for hdname in $hdnamelist; do
 	echo -n "VENDOR="
 	cat /sys/block/$hdname/device/vendor
     fi
-    echo -n "MODEL="
-    cat /sys/block/$hdname/device/model
-    cat /sys/block/$hdname/device/uevent
+    if [ -r /sys/block/$hdname/device/model ]; then
+        echo -n "MODEL="
+        cat /sys/block/$hdname/device/model
+    fi
+    if [ -r /sys/block/$hdname/device/uevent ]; then
+        echo -n "UEVENT="
+        cat /sys/block/$hdname/device/uevent
+    fi
     echo
     # Get user choice
     while true; do

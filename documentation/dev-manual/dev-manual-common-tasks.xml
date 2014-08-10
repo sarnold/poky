@@ -738,13 +738,13 @@
      ...
      DESCRIPTION = "A useful utility"
      ...
-     EXTRA_OECONF = "--enable-something"
+     EXTRA_OECONF = "&dash;&dash;enable-something"
      ...
 
      #### bbappended from meta-anotherlayer ####
 
      DESCRIPTION = "Customized utility"
-     EXTRA_OECONF += "--enable-somethingelse"
+     EXTRA_OECONF += "&dash;&dash;enable-somethingelse"
                                 </literallayout>
                                 Ideally, you would tidy up these utilities as
                                 follows:
@@ -752,7 +752,7 @@
      ...
      DESCRIPTION = "Customized utility"
      ...
-     EXTRA_OECONF = "--enable-something --enable-somethingelse"
+     EXTRA_OECONF = "&dash;&dash;enable-something &dash;&dash;enable-somethingelse"
      ...
                                 </literallayout></para></listitem>
                         </itemizedlist></para></listitem>
@@ -1609,7 +1609,7 @@
                 <filename>poky/build</filename>, and a
                 <filename>qemux86-poky-linux</filename> machine target system.
                 Furthermore, suppose your recipe is named
-                <filename>foo_1.3.0-r0.bb</filename>.
+                <filename>foo_1.3.0.bb</filename>.
                 In this case, the work directory the build system uses to
                 build the package would be as follows:
                 <literallayout class='monospaced'>
@@ -1789,8 +1789,25 @@
             </para>
 
             <para>
-                To find these checksums, you can comment the statements out
-                and then attempt to build the software.
+                Finding proper values for <filename>md5</filename> and
+                <filename>sha256</filename> checksums can involve some work.
+                Initially, you should locate any available signatures from
+                the upstream source (i.e. <filename>md5</filename>,
+                <filename>sha1</filename>, <filename>sha256</filename>,
+                <filename>GPG</filename>, and so forth).
+                Because the OpenEmbedded build system only deals with
+                <filename>sha256sum</filename> and <filename>md5sum</filename>,
+                you should verify all the signatures you find by hand.
+            </para>
+
+            <para>
+                After you have verified as many signatures as you can,
+                you can use a "build-fail" method that retrieves the exact
+                <filename>sha256sum</filename> and <filename>md5sum</filename>
+                checksums you need.
+                To use the "build-fail" method, comment the
+                <filename>SRC_URI</filename> statements out that provide the
+                checksums and then attempt to build the software.
                 The build will produce an error for each missing checksum
                 and as part of the error message provide the correct checksum
                 string.
@@ -2110,7 +2127,7 @@
                         configure script with the appropriate options.</para>
                         <para>For the case involving a custom configure
                         script, you would run
-                        <filename>./configure --help</filename> and look for
+                        <filename>./configure &dash;&dash;help</filename> and look for
                         the options you need to set.</para></listitem>
                 </itemizedlist>
             </para>
@@ -2133,7 +2150,7 @@
                 configure script as needed.
                 For reference information on configure options specific to the
                 software you are building, you can consult the output of the
-                <filename>./configure --help</filename> command within
+                <filename>./configure &dash;&dash;help</filename> command within
                 <filename>${S}</filename> or consult the software's upstream
                 documentation.
             </para>
@@ -2668,6 +2685,7 @@
                     <listitem><para>Using an Autotooled package</para></listitem>
                     <listitem><para>Using a Makefile-based package</para></listitem>
                     <listitem><para>Splitting an application into multiple packages</para></listitem>
+                    <listitem><para>Adding binaries to an image</para></listitem>
                 </itemizedlist>
             </para>
 
@@ -2866,6 +2884,96 @@
                     Files included by earlier packages are skipped by latter packages.
                     Thus, the main <filename>PN</filename> package
                     does not include the above listed files.
+                </para>
+            </section>
+
+            <section id='packaging-externally-produced-binaries'>
+                <title>Packaging Externally Produced Binaries</title>
+
+                <para>
+                    Sometimes, you need to add pre-compiled binaries to an
+                    image.
+                    For example, suppose that binaries for proprietary code
+                    exist, which are created by a particular division of a
+                    company.
+                    Your part of the company needs to use those binaries as
+                    part of an image that you are building using the
+                    OpenEmbedded build system.
+                    Since you only have the binaries and not the source code,
+                    you cannot use a typical recipe that expects to fetch the
+                    source specified in
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-SRC_URI'><filename>SRC_URI</filename></ulink>
+                    and then compile it.
+                </para>
+
+                <para>
+                    One method is to package the binaries and then install them
+                    as part of the image.
+                    Generally, it is not a good idea to package binaries
+                    since, among other things, it can hinder the ability to
+                    reproduce builds and could lead to compatibility problems
+                    with ABI in the future.
+                    However, sometimes you have no choice.
+                </para>
+
+                <para>
+                    The easiest solution is to create a recipe that uses
+                    the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-bin-package'><filename>bin_package</filename></ulink>
+                    class and to be sure that you are using default locations
+                    for build artifacts.
+                    In most cases, the <filename>bin_package</filename> class
+                    handles "skipping" the configure and compile steps as well
+                    as sets things up to grab packages from the appropriate
+                    area.
+                    In particular, this class sets <filename>noexec</filename>
+                    on both the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#ref-tasks-configure'><filename>do_configure</filename></ulink>
+                    and
+                    <ulink url='&YOCTO_DOCS_REF_URL;#ref-tasks-compile'><filename>do_compile</filename></ulink>
+                    tasks, sets
+                    <filename>FILES_${PN}</filename> to "/" so that it picks
+                    up all files, and sets up a
+                    <ulink url='&YOCTO_DOCS_REF_URL;#ref-tasks-install'><filename>do_install</filename></ulink>
+                    task, which effectively copies all files from
+                    <filename>${S}</filename> to <filename>${D}</filename>.
+                    For more information on these variables, see the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-FILES'><filename>FILES</filename></ulink>,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-PN'><filename>PN</filename></ulink>,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-S'><filename>S</filename></ulink>,
+                    and
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-D'><filename>D</filename></ulink>
+                    variables in the Yocto Project Reference Manual's variable
+                    glossary.
+                </para>
+
+                <para>
+                    If you can't use the <filename>bin_package</filename>
+                    class, you need to be sure you are doing the following:
+                    <itemizedlist>
+                        <listitem><para>Create a recipe where the
+                            <filename>do_configure</filename> and
+                            <filename>do_compile</filename> tasks do nothing:
+                            <literallayout class='monospaced'>
+     do_configure[noexec] = "1"
+     do_compile[noexec] = "1"
+                            </literallayout>
+                            Alternatively, you can make these tasks an empty
+                            function.
+                            </para></listitem>
+                        <listitem><para>make sure your
+                            <filename>do_install</filename> task installs the
+                            binaries appropriately.
+                            </para></listitem>
+                        <listitem><para>Ensure that you set up
+                            <filename>FILES</filename> (usually
+                            <filename>FILES_${PN}</filename>) to point to the
+                            files you have installed, which of course depends
+                            on where you have installed them and whether
+                            those files are in different locations than the
+                            defaults.
+                            </para></listitem>
+                    </itemizedlist>
                 </para>
             </section>
         </section>
@@ -3345,6 +3453,943 @@
      DEPENDS = "clutter-1.8"
                 </literallayout>
             </para>
+        </section>
+    </section>
+
+    <section id='creating-partitioned-images'>
+        <title>Creating Partitioned Images</title>
+
+        <para>
+            Creating an image for a particular hardware target using the
+            OpenEmbedded build system does not necessarily mean you can boot
+            that image as is on your device.
+            Physical devices accept and boot images in various ways depending
+            on the specifics of the device.
+            Usually, information about the hardware can tell you what image
+            format the device requires.
+            Should your device require multiple partitions on an SD card, flash,
+            or an HDD, you can use the OpenEmbedded Image Creator,
+	        <filename>wic</filename>, to create the properly partitioned image.
+        </para>
+
+        <para>
+            The <filename>wic</filename> command generates partitioned images
+            from existing OpenEmbedded build artifacts.
+            Image generation is driven by partitioning commands contained
+            in an Openembedded kickstart file (<filename>.wks</filename>)
+            specified either directly on the command-line or as one of a
+            selection of canned <filename>.wks</filename> files as shown
+            with the <filename>wic list images</filename> command in the
+            "<link linkend='using-a-provided-kickstart_file'>Using an Existing Kickstart File</link>"
+            section.
+            When applied to a given set of build artifacts, the result is an
+            image or set of images that can be directly written onto media and
+            used on a particular system.
+        </para>
+
+        <para>
+	        The <filename>wic</filename> command and the infrastructure
+	        it is based on is by definition incomplete.
+            Its purpose is to allow the generation of customized images,
+            and as such was designed to be completely extensible via a
+            plugin interface.
+            See the
+            "<link linkend='openembedded-kickstart-plugins'>Plugins</link>"
+            section for information on these plugins.
+	    </para>
+
+        <para>
+            This section provides some background information on
+            <filename>wic</filename>, describes what you need to have in
+            place to run the tool, provides instruction on how to use
+            <filename>wic</filename>, and provides several examples.
+        </para>
+
+        <section id='wic-background'>
+            <title>Background</title>
+
+            <para>
+                This section provides some background on the
+                <filename>wic</filename> utility.
+                While none of this information is required to use
+                <filename>wic</filename>, you might find it interesting.
+                <itemizedlist>
+                    <listitem><para>
+                        The name "wic" is derived from OpenEmbedded
+                        Image Creator (oeic).
+                        The "oe" diphthong in "oeic" was promoted to the
+                        letter "w", because "oeic" is both difficult to remember and
+                        pronounce.</para></listitem>
+                    <listitem><para>
+                        <filename>wic</filename> is loosely based on the
+                        Meego Image Creator (<filename>mic</filename>)
+                        framework.
+                        The <filename>wic</filename> implementation has been
+                        heavily modified to make direct use of OpenEmbedded
+                        build artifacts instead of package installation and
+                        configuration, which are already incorporated within
+                        the OpenEmbedded artifacts.</para></listitem>
+                    <listitem><para>
+                        <filename>wic</filename> is a completely independent
+                        standalone utility that initially provides
+                        easier-to-use and more flexible replacements for a
+                        couple bits of existing functionality in OE Core's
+                        <filename>directdisk.bbclass</filename> and
+                        <filename>mkefidisk.sh</filename> scripts.
+                        The difference between
+                        <filename>wic</filename> and those examples is
+                        that with <filename>wic</filename> the
+                        functionality of those scripts is implemented
+                        by a general-purpose partitioning language, which is
+                        based on Redhat kickstart syntax.</para></listitem>
+                </itemizedlist>
+            </para>
+        </section>
+
+        <section id='wic-requirements'>
+            <title>Requirements</title>
+
+            <para>
+                In order to use the <filename>wic</filename> utility
+                with the OpenEmbedded Build system, your system needs
+                to meet the following requirements:
+                <itemizedlist>
+                    <listitem><para>The Linux distribution on your
+                        development host must support the Yocto Project.
+                        See the
+                        "<ulink url='&YOCTO_DOCS_REF_URL;#detailed-supported-distros'>Supported Linux Distributions</ulink>"
+                        section in the Yocto Project Reference Manual for this
+                        list of distributions.</para></listitem>
+                    <listitem><para>
+                        The standard system utilities, such as
+                        <filename>cp</filename>, must be installed on your
+                        development host system.
+                        </para></listitem>
+                    <listitem><para>
+                        The
+                        <ulink url='http://www.gnu.org/software/parted/'>GNU Parted</ulink>
+                        package must be installed on your development host
+                        system.
+                        </para></listitem>
+                    <listitem><para>
+                        You need to have the build artifacts already
+                        available, which typically means that you must
+                        have already created an image using the
+                        Openembedded build system (e.g.
+                        <filename>core-image-minimal</filename>).
+                        While it might seem redundant to generate an image in
+                        order to create an image using
+                        <filename>wic</filename>, the current version of
+                        <filename>wic</filename> requires the artifacts
+                        in the form generated by the build system.
+                        </para></listitem>
+                    <listitem><para>
+                        You must have sourced one of the build environment
+                        setup scripts (i.e.
+                        <ulink url='&YOCTO_DOCS_REF_URL;#structure-core-script'><filename>&OE_INIT_FILE;</filename></ulink>
+                        or
+                        <ulink url='&YOCTO_DOCS_REF_URL;#structure-memres-core-script'><filename>oe-init-build-env-memres</filename></ulink>)
+                        found in the
+                        <link linkend='build-directory'>Build Directory</link>.
+                        </para></listitem>
+                </itemizedlist>
+            </para>
+        </section>
+
+        <section id='wic-getting-help'>
+            <title>Getting Help</title>
+
+            <para>
+                You can get general help for the <filename>wic</filename>
+                by entering the <filename>wic</filename> command by itself
+                or by entering the command with a help argument as follows:
+                <literallayout class='monospaced'>
+     $ wic -h
+     $ wic &dash;&dash;help
+                </literallayout>
+            </para>
+
+            <para>
+                Currently, <filename>wic</filename> supports two commands:
+                <filename>create</filename> and <filename>list</filename>.
+                You can get help for these commands as follows:
+                <literallayout class='monospaced'>
+     $ wic help &lt;command&gt;
+                </literallayout>
+            </para>
+
+            <para>
+                You can also get detailed help on a number of topics
+                from the help system.
+                The output of <filename>wic &dash;&dash;help</filename>
+                displays a list of available help
+                topics under a "Help topics" heading.
+                You can have the help system display the help text for
+                a given topic by prefacing the topic with
+                <filename>wic help</filename>:
+                <literallayout class='monospaced'>
+     $ wic help &lt;help topic&gt;
+                </literallayout>
+            </para>
+
+            <para>
+                You can find out more about the images
+                <filename>wic</filename> creates using the existing
+                kickstart files with the following form of the command:
+                <literallayout class='monospaced'>
+     $ wic list &lt;image&gt; help
+                </literallayout>
+                Where <filename>&lt;image&gt;</filename> is either
+                <filename>directdisk</filename> or
+                <filename>mkefidisk</filename>.
+            </para>
+        </section>
+
+        <section id='operational-modes'>
+            <title>Operational Modes</title>
+
+            <para>
+	            You can use <filename>wic</filename> in two different
+	            modes, depending on how much control you need for
+	            specifying the Openembedded build artifacts that are
+                used for creating the image: Raw and Cooked:
+                <itemizedlist>
+                    <listitem><para><emphasis>Raw Mode:</emphasis>
+                        You explicitly specify build artifacts through
+                        command-line arguments.</para></listitem>
+                    <listitem><para><emphasis>Cooked Mode:</emphasis>
+                        The current
+                        <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>
+                        setting and image name are used to automatically locate
+                        and provide the build artifacts.</para></listitem>
+                </itemizedlist>
+            </para>
+
+            <para>
+                Regardless of the mode you use, you need to have the build
+                artifacts ready and available.
+                Additionally, the environment must be set up using the
+                <ulink url='&YOCTO_DOCS_REF_URL;#structure-core-script'><filename>&OE_INIT_FILE;</filename></ulink>
+                or
+                <ulink url='&YOCTO_DOCS_REF_URL;#structure-memres-core-script'><filename>oe-init-build-env-memres</filename></ulink>
+                script found in the
+                <link linkend='build-directory'>Build Directory</link>.
+            </para>
+
+            <section id='raw-mode'>
+                <title>Raw Mode</title>
+
+                <para>
+                    The general form of the 'wic' command in raw mode is:
+                    <literallayout class='monospaced'>
+     $ wic create <replaceable>image_name</replaceable>.wks [<replaceable>options</replaceable>] [...]
+
+         Where:
+
+             <replaceable>image_name</replaceable>.wks
+                               An an OpenEmbedded kickstart file.  You can provide
+                               your own custom file or use a file from a set of
+                               existing files as described by further options.
+
+             -o <replaceable>OUTDIR</replaceable>, &dash;&dash;outdir=<replaceable>OUTDIR</replaceable>
+                               The name of a directory in which to create image.
+
+             -i <replaceable>PROPERTIES_FILE</replaceable>, &dash;&dash;infile=<replaceable>PROPERTIES_FILE</replaceable>
+                               The name of a file containing the values for image
+                               properties as a JSON file.
+
+             -e <replaceable>IMAGE_NAME</replaceable>, &dash;&dash;image-name=<replaceable>IMAGE_NAME</replaceable>
+                               The name of the image from which to use the artifacts
+                               (e.g. <filename>core-image-sato</filename>).
+
+             -r <replaceable>ROOTFS_DIR</replaceable>, &dash;&dash;rootfs-dir=<replaceable>ROOTFS_DIR</replaceable>
+                               The path to the <filename>/rootfs</filename> directory to use as the
+                               <filename>.wks</filename> rootfs source.
+
+             -b <replaceable>BOOTIMG_DIR</replaceable>, &dash;&dash;bootimg-dir=<replaceable>BOOTIMG_DIR</replaceable>
+                               The path to the directory containing the boot artifacts
+                               (e.g. <filename>/EFI</filename> or <filename>/syslinux</filename>) to use as the <filename>.wks</filename> bootimg
+                               source.
+
+             -k <replaceable>KERNEL_DIR</replaceable>, &dash;&dash;kernel-dir=<replaceable>KERNEL_DIR</replaceable>
+                               The path to the directory containing the kernel to use
+                               in the <filename>.wks</filename> boot image.
+
+             -n <replaceable>NATIVE_SYSROOT</replaceable>, &dash;&dash;native-sysroot=<replaceable>NATIVE_SYSROOT</replaceable>
+                               The path to the native sysroot containing the tools to use
+                               to build the image.
+
+             -p, &dash;&dash;skip-build-check
+                               Skips the build check.
+
+             -D, &dash;&dash;debug
+                               Output debug information.
+                    </literallayout>
+                    <note>
+                        You do not need root privileges to run
+                        <filename>wic</filename>.
+                        In fact, you should not run as root when using the
+                        utility.
+                    </note>
+                </para>
+            </section>
+
+            <section id='cooked-mode'>
+                <title>Cooked Mode</title>
+
+                <para>
+                    The general form of the <filename>wic</filename> command
+                    using Cooked Mode is:
+                    <literallayout class='monospaced'>
+     $ wic create <replaceable>kickstart_file</replaceable> -e <replaceable>image_name</replaceable>
+
+         Where:
+
+             <replaceable>kickstart_file</replaceable>
+                               An OpenEmbedded kickstart file. You can provide your own
+                               custom file or supplied file.
+
+             <replaceable>image_name</replaceable>
+                               Specifies the image built using the OpenEmbedded build
+                               system.
+                    </literallayout>
+                    This form is the simplest and most user-friendly, as it
+                    does not require specifying all individual parameters.
+                    All you need to provide is your own
+                    <filename>.wks</filename> file or one provided with the
+                    release.
+                </para>
+            </section>
+        </section>
+
+        <section id='using-a-provided-kickstart_file'>
+            <title>Using an Existing Kickstart File</title>
+
+            <para>
+                If you do not want to create your own
+                <filename>.wks</filename> file, you can use an existing
+                file provided by the <filename>wic</filename> installation.
+                Use the following command to list the available files:
+                <literallayout class='monospaced'>
+     $ wic list images
+     directdisk Create a 'pcbios' direct disk image
+     mkefidisk Create an EFI disk image
+                 </literallayout>
+                 When you use an existing file, you do not have to use the
+                 <filename>.wks</filename> extension.
+                 Here is an example in Raw Mode that uses the
+                 <filename>directdisk</filename> file:
+                 <literallayout class='monospaced'>
+     $ wic create directdisk -r <replaceable>rootfs_dir</replaceable> -b <replaceable>bootimg_dir</replaceable> \
+           -k <replaceable>kernel_dir</replaceable> -n <replaceable>native_sysroot</replaceable>
+                </literallayout>
+            </para>
+
+            <para>
+                Here are the actual partition language commands
+                used in the <filename>mkefidisk.wks</filename> file to generate
+                an image:
+                <literallayout class='monospaced'>
+     # short-description: Create an EFI disk image
+     # long-description: Creates a partitioned EFI disk image that the user
+     # can directly dd to boot media.
+
+     part /boot &dash;&dash;source bootimg-efi &dash;&dash;ondisk sda &dash;&dash;active
+
+     part / &dash;&dash;source rootfs &dash;&dash;ondisk sda &dash;&dash;fstype=ext3 &dash;&dash;label platform
+
+     part swap &dash;&dash;ondisk sda &dash;&dash;size 44 &dash;&dash;label swap1 &dash;&dash;fstype=swap
+
+     bootloader  &dash;&dash;timeout=10  &dash;&dash;append="rootwait console=ttyPCH0,115200"
+                </literallayout>
+            </para>
+        </section>
+
+        <section id='wic-usage-examples'>
+            <title>Examples</title>
+
+            <para>
+                This section provides several examples that show how to use
+                the <filename>wic</filename> utility.
+                All the examples assume the list of requirements in the
+                "<link linkend='wic-requirements'>Requirements</link>" section
+                have been met.
+                The examples assume the previously generated image is
+                <filename>core-image-minimal</filename>.
+            </para>
+
+            <section id='generate-an-image-using-a-provided-kickstart-file'>
+                <title>Generate an Image using an Existing Kickstart File</title>
+
+                <para>
+                    This example runs in Cooked Mode and uses the
+                    <filename>mkefidisk</filename> kickstart file:
+                    <literallayout class='monospaced'>
+     $ wic create mkefidisk -e core-image-minimal
+     Checking basic build environment...
+     Done.
+
+     Creating image(s)...
+
+     Info: The new image(s) can be found here:
+      /var/tmp/wic/build/mkefidisk-201310230946-sda.direct
+
+     The following build artifacts were used to create the image(s):
+      ROOTFS_DIR: /home/trz/yocto/yocto-image/build/tmp/work/minnow-poky-linux/core-image-minimal/1.0-r0/rootfs
+      BOOTIMG_DIR: /home/trz/yocto/yocto-image/build/tmp/work/minnow-poky-linux/core-image-minimal/1.0-r0/core-image-minimal-1.0/hddimg
+      KERNEL_DIR: /home/trz/yocto/yocto-image/build/tmp/sysroots/minnow/usr/src/kernel
+      NATIVE_SYSROOT: /home/trz/yocto/yocto-image/build/tmp/sysroots/x86_64-linux
+
+
+     The image(s) were created using OE kickstart file:
+      /home/trz/yocto/yocto-image/scripts/lib/image/canned-wks/mkefidisk.wks
+                    </literallayout>
+                    This example shows the easiest way to create an image
+                    by running in Cooked Mode and using the
+                    <filename>-e</filename> option with an existing kickstart
+                    file.
+                    All that is necessary is to specify the image used to
+                    generate the artifacts.
+                    Your <filename>local.conf</filename> needs to have the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>
+                    variable set to the machine you are using, which is
+                    "minnow" in this example.
+                </para>
+
+                <para>
+                    The output specifies exactly which image was
+                    created as well as where it was created.
+                    The output also names the artifacts used and the exact
+                    <filename>.wks</filename> script that was used to generate
+                    the image.
+                    <note>
+                        You should always verify the details provided in the
+                        output to make sure that the image was indeed created
+                        exactly as expected.
+                    </note>
+                </para>
+
+                <para>
+                    Continuing with the example, you can now directly
+                    <filename>dd</filename> the image to a USB stick, or
+                    whatever media for which you built your image,
+                    and boot the resulting media:
+                    <literallayout class='monospaced'>
+     $ sudo dd if=/var/tmp/wic/build/mkefidisk-201310230946-sda.direct of=/dev/sdb
+     [sudo] password for trz:
+     182274+0 records in
+     182274+0 records out
+     93324288 bytes (93 MB) copied, 14.4777 s, 6.4 MB/s
+     [trz@empanada ~]$ sudo eject /dev/sdb
+                    </literallayout>
+                </para>
+            </section>
+
+            <section id='using-a-modified-kickstart-file'>
+                <title>Using a Modified Kickstart File</title>
+
+                <para>
+                    Because <filename>wic</filename> image creation is driven
+                    by the kickstart file, it is easy to affect image creation
+                    by changing the parameters in the file.
+                    This next example demonstrates that through modification
+                    of the <filename>directdisk</filename> kickstart file.
+                </para>
+
+                <para>
+                    As mentioned earlier, you can use the command
+                    <filename>wic list images</filename> to show the list
+                    of existing kickstart files.
+                    The directory in which these files reside is
+                    <filename>scripts/lib/image/canned-wks/</filename>
+                    located in the
+                    <link linkend='source-directory'>Source Directory</link>.
+                    Because the available files reside in this directory, you
+                    can create and add your own custom files to the directory.
+                    Subsequent use of the <filename>wic list images</filename>
+                    command would then include your kickstart files.
+                </para>
+
+                <para>
+                    In this example, the existing
+                    <filename>directdisk</filename> file already does most
+                    of what is needed.
+                    However, for the hardware in this example, the image will
+                    need to boot from <filename>sdb</filename> instead of
+                    <filename>sda</filename>, which is what the
+                    <filename>directdisk</filename> kickstart file uses.
+                </para>
+
+                <para>
+                    The example begins by making a copy of the
+                    <filename>directdisk.wks</filename> file in the
+                    <filename>scripts/lib/image/canned-wks</filename>
+                    directory and then changing the lines that specify the
+                    target disk from which to boot.
+                    <literallayout class='monospaced'>
+     $ cp /home/trz/yocto/yocto-image/scripts/lib/image/canned-wks/directdisk.wks \
+          /home/trz/yocto/yocto-image/scripts/lib/image/canned-wks/directdisksdb.wks
+                    </literallayout>
+                    Next, the example modifies the
+                    <filename>directdisksdb.wks</filename> file and changes all
+                    instances of "<filename>&dash;&dash;ondisk sda</filename>"
+                    to "<filename>&dash;&dash;ondisk sdb</filename>".
+                    The example changes the following two lines and leaves the
+                    remaining lines untouched:
+                    <literallayout class='monospaced'>
+     part /boot &dash;&dash;source bootimg-pcbios &dash;&dash;ondisk sdb &dash;&dash;label boot &dash;&dash;active &dash;&dash;align 1024
+     part / &dash;&dash;source rootfs &dash;&dash;ondisk sdb &dash;&dash;fstype=ext3 &dash;&dash;label platform &dash;&dash;align 1024
+                    </literallayout>
+                    Once the lines are changed, the example generates the
+                    <filename>directdisksdb</filename> image.
+                    The command points the process at the
+                    <filename>core-image-minimal</filename> artifacts for the
+                    Next Unit of Computing (nuc)
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>
+                    the <filename>local.conf</filename>.
+                    <literallayout class='monospaced'>
+     $ wic create directdisksdb -e core-image-minimal
+     Checking basic build environment...
+     Done.
+
+     Creating image(s)...
+
+     Info: The new image(s) can be found here:
+      /var/tmp/wic/build/directdisksdb-201310231131-sdb.direct
+
+     The following build artifacts were used to create the image(s):
+      ROOTFS_DIR: /home/trz/yocto/yocto-image/build/tmp/work/nuc-poky-linux/core-image-minimal/1.0-r0/rootfs
+      BOOTIMG_DIR: /home/trz/yocto/yocto-image/build/tmp/sysroots/nuc/usr/share
+      KERNEL_DIR: /home/trz/yocto/yocto-image/build/tmp/sysroots/nuc/usr/src/kernel
+      NATIVE_SYSROOT: /home/trz/yocto/yocto-image/build/tmp/sysroots/x86_64-linux
+
+
+     The image(s) were created using OE kickstart file:
+      /home/trz/yocto/yocto-image/scripts/lib/image/canned-wks/directdisksdb.wks
+                    </literallayout>
+                    Continuing with the example, you can now directly
+                    <filename>dd</filename> the image to a USB stick, or
+                    whatever media for which you built your image,
+                    and boot the resulting media:
+                    <literallayout class='monospaced'>
+     $ sudo dd if=/var/tmp/wic/build/directdisksdb-201310231131-sdb.direct of=/dev/sdb
+     86018+0 records in
+     86018+0 records out
+     44041216 bytes (44 MB) copied, 13.0734 s, 3.4 MB/s
+     [trz@empanada tmp]$ sudo eject /dev/sdb
+                    </literallayout>
+                </para>
+            </section>
+
+            <section id='creating-an-image-based-on-core-image-minimal-and-crownbay-noemgd'>
+                <title>Creating an Image Based on <filename>core-image-minimal</filename> and <filename>crownbay-noemgd</filename></title>
+
+                <para>
+                    This example creates an image based on
+                    <filename>core-image-minimal</filename> and a
+                    <filename>crownbay-noemgd</filename>
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>
+                    that works right out of the box.
+                    <literallayout class='monospaced'>
+     $ wic create directdisk -e core-image-minimal
+
+     Checking basic build environment...
+     Done.
+
+     Creating image(s)...
+
+     Info: The new image(s) can be found here:
+      /var/tmp/wic/build/directdisk-201309252350-sda.direct
+
+     The following build artifacts were used to create the image(s):
+
+     ROOTFS_DIR: /home/trz/yocto/yocto-image/build/tmp/work/crownbay_noemgd-poky-linux/core-image-minimal/1.0-r0/rootfs
+     BOOTIMG_DIR: /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/share
+     KERNEL_DIR: /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/src/kernel
+     NATIVE_SYSROOT: /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/src/kernel
+
+     The image(s) were created using OE kickstart file:
+      /home/trz/yocto/yocto-image/scripts/lib/image/canned-wks/directdisk.wks
+                    </literallayout>
+                </para>
+            </section>
+
+            <section id='using-a-modified-kickstart-file-and-running-in-raw-mode'>
+                <title>Using a Modified Kickstart File and Running in Raw Mode</title>
+
+                <para>
+                    This next example manually specifies each build artifact
+                    (runs in Raw Mode) and uses a modified kickstart file.
+                    The example also uses the <filename>-o</filename> option
+                    to cause <filename>wic</filename> to create the output
+                    somewhere other than the default
+                    <filename>/var/tmp/wic</filename> directory:
+                    <literallayout class='monospaced'>
+     $ wic create ~/test.wks -o /home/trz/testwic &dash;&dash;rootfs-dir \
+          /home/trz/yocto/yocto-image/build/tmp/work/crownbay_noemgd-poky-linux/core-image-minimal/1.0-r0/rootfs \
+          &dash;&dash;bootimg-dir /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/share \
+          &dash;&dash;kernel-dir /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/src/kernel \
+          &dash;&dash;native-sysroot /home/trz/yocto/yocto-image/build/tmp/sysroots/x86_64-linux
+
+     Creating image(s)...
+
+     Info: The new image(s) can be found here:
+      /home/trz/testwic/build/test-201309260032-sda.direct
+
+     The following build artifacts were used to create the image(s):
+
+     ROOTFS_DIR: /home/trz/yocto/yocto-image/build/tmp/work/crownbay_noemgd-poky-linux/core-image-minimal/1.0-r0/rootfs
+     BOOTIMG_DIR: /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/share
+     KERNEL_DIR: /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/src/kernel
+     NATIVE_SYSROOT: /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/src/kernel
+
+     The image(s) were created using OE kickstart file:
+      /home/trz/test.wks
+                    </literallayout>
+                    For this example,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>
+                    did not have to be specified in the
+                    <filename>local.conf</filename> file since the artifact is
+                    manually specified.
+                </para>
+            </section>
+        </section>
+
+        <section id='openembedded-kickstart-plugins'>
+            <title>Plugins</title>
+
+            <para>
+	            Plugins allow <filename>wic</filename> functionality to
+	            be extended and specialized by users.
+                This section documents the plugin interface, which is
+                currently restricted to source plugins.
+            </para>
+
+            <para>
+	            Source plugins provide a mechanism to customize
+	            various aspects of the image generation process in
+	            <filename>wic</filename>, mainly the contents of
+	            partitions.
+	            The plugins provide a mechanism for mapping values
+	            specified in <filename>.wks</filename> files using the
+	            <filename>&dash;&dash;source</filename> keyword to a
+                particular plugin implementation that populates a
+                corresponding partition.
+            </para>
+
+            <para>
+	            A source plugin is created as a subclass of
+	            <filename>SourcePlugin</filename>.
+                The plugin file containing it is added to
+	            <filename>scripts/lib/mic/plugins/source/</filename> to
+	            make the plugin implementation available to the
+	            <filename>wic</filename> implementation.
+                For more information, see
+	            <filename>scripts/lib/mic/pluginbase.py</filename>.
+            </para>
+
+            <para>
+	            Source plugins can also be implemented and added by
+	            external layers.
+                As such, any plugins found in a
+	            <filename>scripts/lib/mic/plugins/source/</filename>
+	            directory in an external layer are also made
+	            available.
+            </para>
+
+            <para>
+	            When the <filename>wic</filename> implementation needs
+	            to invoke a partition-specific implementation, it looks
+	            for the plugin that has the same name as the
+	            <filename>&dash;&dash;source</filename> parameter given to
+                that partition.
+                For example, if the partition is set up as follows:
+                <literallayout class='monospaced'>
+     part /boot &dash;&dash;source bootimg-pcbios   ...
+                </literallayout>
+	            The methods defined as class members of the plugin
+	            having the matching <filename>bootimg-pcbios.name</filename>
+                class member are used.
+            </para>
+
+            <para>
+	            To be more concrete, here is the plugin definition that
+	            matches a
+                <filename>'&dash;&dash;source bootimg-pcbios'</filename> usage,
+                along with an example
+	            method called by the <filename>wic</filename> implementation
+                when it needs to invoke an implementation-specific
+	            partition-preparation function:
+                <literallayout class='monospaced'>
+    class BootimgPcbiosPlugin(SourcePlugin):
+        name = 'bootimg-pcbios'
+
+    @classmethod
+        def do_prepare_partition(self, part, ...)
+                </literallayout>
+	            If the subclass itself does not implement a function, a
+	            default version in a superclass is located and
+	            used, which is why all plugins must be derived from
+	            <filename>SourcePlugin</filename>.
+            </para>
+
+            <para>
+	            The <filename>SourcePlugin</filename> class defines the
+	            following methods, which is the current set of methods
+	            that can be implemented or overridden by
+	            <filename>&dash;&dash;source</filename> plugins.
+                Any methods not implemented by a
+                <filename>SourcePlugin</filename> subclass inherit the
+                implementations present in the
+	            <filename>SourcePlugin</filename> class.
+                For more information, see the
+	            <filename>SourcePlugin</filename> source for details:
+            </para>
+
+            <para>
+                <itemizedlist>
+                    <listitem><para><emphasis><filename>do_prepare_partition()</filename>:</emphasis>
+                        Called to do the actual content population for a
+                        partition.
+                        In other words, the method prepares the final
+                        partition image that is incorporated into the
+                        disk image.
+                        </para></listitem>
+                    <listitem><para><emphasis><filename>do_configure_partition()</filename>:</emphasis>
+                        Called before
+                        <filename>do_prepare_partition()</filename>.
+                        This method is typically used to create custom
+                        configuration files for a partition (e.g. syslinux or
+                        grub configuration files).
+                        </para></listitem>
+                    <listitem><para><emphasis><filename>do_install_disk()</filename>:</emphasis>
+                        Called after all partitions have been prepared and
+                        assembled into a disk image.
+                        This method provides a hook to allow finalization of a
+                        disk image, (e.g. writing an MBR).
+                        </para></listitem>
+                    <listitem><para><emphasis><filename>do_stage_partition()</filename>:</emphasis>
+                        Special content-staging hook called before
+                        <filename>do_prepare_partition()</filename>.
+                        This method is normally empty.</para>
+                        <para>Typically, a partition just uses the passed-in
+                        parameters (e.g. the unmodified value of
+		                <filename>bootimg_dir</filename>).
+                        However, in some cases things might need to be
+                        more tailored.
+                        As an example, certain files might additionally
+                        need to be taken from
+                        <filename>bootimg_dir + /boot</filename>.
+		                This hook allows those files to be staged in a
+		                customized fashion.
+                        <note>
+                            <filename>get_bitbake_var()</filename>
+                            allows you to access non-standard variables
+                            that you might want to use for this.
+                        </note>
+                        </para></listitem>
+                </itemizedlist>
+            </para>
+
+            <para>
+                This scheme is extensible.
+                Adding more hooks is a simple matter of adding more
+                plugin methods to <filename>SourcePlugin</filename> and
+                derived classes.
+                The code that then needs to call the plugin methods uses
+                <filename>plugin.get_source_plugin_methods()</filename>
+                to find the method or methods needed by the call.
+                Retrieval of those methods is accomplished is accomplished
+                by filling up a dict with keys
+                containing the method names of interest.
+                On success, these will be filled in with the actual
+                methods.
+                Please see the <filename>wic</filename>
+                implementation for examples and details.
+            </para>
+        </section>
+
+        <section id='openembedded-kickstart-wks-reference'>
+            <title>OpenEmbedded Kickstart (.wks) Reference</title>
+
+            <para>
+                The current <filename>wic</filename> implementation supports
+                only the basic kickstart partitioning commands:
+                <filename>partition</filename> (or <filename>part</filename>
+                for short) and <filename>bootloader</filename>.
+                <note>
+                    Future updates will implement more commands and options.
+                    If you use anything that is not specifically
+                    supported, results can be unpredictable.
+                </note>
+            </para>
+
+            <para>
+                The following is a list of the commands, their syntax,
+                and meanings.
+                The commands are based on the Fedora
+                kickstart versions but with modifications to
+                reflect <filename>wic</filename> capabilities.
+                You can see the original documentation for those commands
+                at the following links:
+                <itemizedlist>
+                    <listitem><para>
+                        <ulink url='http://fedoraproject.org/wiki/Anaconda/Kickstart#part_or_partition'>http://fedoraproject.org/wiki/Anaconda/Kickstart#part_or_partition</ulink>
+			            </para></listitem>
+                    <listitem><para>
+                        <ulink url='http://fedoraproject.org/wiki/Anaconda/Kickstart#bootloader'>http://fedoraproject.org/wiki/Anaconda/Kickstart#bootloader</ulink>
+			            </para></listitem>
+                </itemizedlist>
+            </para>
+
+            <section id='command-part-or-partition'>
+                <title>Command: part or partition</title>
+
+                <para>
+                This command creates a partition on the system and uses the
+                following syntax:
+                    <literallayout class='monospaced'>
+     part &lt;mntpoint&gt;
+                    </literallayout>
+                    The <filename>&lt;mntpoint&gt;</filename> is where the
+                    partition will be mounted and must be of one of the
+                    following forms:
+                    <itemizedlist>
+                        <listitem><para><filename>/&lt;path&gt;</filename>:
+                            For example, <filename>/</filename>,
+                            <filename>/usr</filename>, and
+                            <filename>/home</filename></para></listitem>
+                        <listitem><para><filename>swap</filename>:
+                            The partition will be used as swap space.
+                            </para></listitem>
+                    </itemizedlist>
+                </para>
+
+                <para>
+                    Following are the supported options:
+                    <itemizedlist>
+                        <listitem><para><emphasis><filename>&dash;&dash;size</filename>:</emphasis>
+                            The minimum partition size in MBytes.
+                            Specify an integer value such as 500.
+                            Do not append the number with "MB".
+                            You do not need this option if you use
+                            <filename>&dash;&dash;source</filename>.</para></listitem>
+                        <listitem><para><emphasis><filename>&dash;&dash;source</filename>:</emphasis>
+                            This option is a
+                            <filename>wic</filename>-specific option that
+                            names the source of the data that populates
+                            the partition.
+                            The most common value for this option is
+                            "rootfs", but you can use any value that maps to
+                            a valid source plugin.
+                            For information on the source plugins, see the
+                            "<link linkend='openembedded-kickstart-plugins'>Plugins</link>"
+                            section.</para>
+                            <para>If you use
+                            <filename>&dash;&dash;source rootfs</filename>,
+                            <filename>wic</filename> creates a partition as
+                            large as needed and to fill it with the contents of
+			                the root filesystem pointed to by the
+			                <filename>-r</filename> command-line option
+			                or the equivalent rootfs derived from the
+			                <filename>-e</filename> command-line
+			                option.
+                            The filesystem type used to create the
+                            partition is driven by the value of the
+			                <filename>&dash;&dash;fstype</filename> option
+			                specified for the partition.
+                            See the entry on
+                            <filename>&dash;&dash;fstype</filename> that
+                            follows for more information.
+			                </para>
+                            <para>If you use
+                            <filename>&dash;&dash;source &lt;plugin-name&gt;</filename>,
+                            <filename>wic</filename> creates a partition as
+                            large as needed and fills it with the contents of
+                            the partition that is generated by the
+                            specified plugin name using the data pointed
+                            to by the <filename>-r</filename> command-line
+                            option or the equivalent rootfs derived from the
+			                <filename>-e</filename> command-line
+			                option.
+                            Exactly what those contents and
+			                filesystem type end up being are dependent
+			                on the given plugin implementation.
+                            </para></listitem>
+                        <listitem><para><emphasis><filename>&dash;&dash;ondisk</filename> or <filename>&dash;&dash;ondrive</filename>:</emphasis>
+                            Forces the partition to be created on a particular
+                            disk.</para></listitem>
+                        <listitem><para><emphasis><filename>&dash;&dash;fstype</filename>:</emphasis>
+                            Sets the file system type for the partition.
+                            Valid values are:
+                            <itemizedlist>
+                                <listitem><para><filename>ext4</filename>
+                                </para></listitem>
+                                <listitem><para><filename>ext3</filename>
+                                </para></listitem>
+                                <listitem><para><filename>ext2</filename>
+                                </para></listitem>
+                                <listitem><para><filename>btrfs</filename>
+                                </para></listitem>
+                                <listitem><para><filename>squashfs</filename>
+                                </para></listitem>
+                                <listitem><para><filename>swap</filename>
+                                </para></listitem>
+                            </itemizedlist></para></listitem>
+                        <listitem><para><emphasis><filename>&dash;&dash;fsoptions</filename>:</emphasis>
+                            Specifies a free-form string of options to be
+                            used when mounting the filesystem.
+                            This string will be copied into the
+                            <filename>/etc/fstab</filename> file of the
+                            installed system and should be enclosed in
+                            quotes.
+                            If not specified, the default string
+                            is "defaults".
+                            </para></listitem>
+                        <listitem><para><emphasis><filename>&dash;&dash;label label</filename>:</emphasis>
+                            Specifies the label to give to the filesystem to
+                            be made on the partition.
+                            If the given label is already in use by another
+                            filesystem, a new label is created for the
+                            partition.</para></listitem>
+                        <listitem><para><emphasis><filename>&dash;&dash;active</filename>:</emphasis>
+                            Marks the partition as active.</para></listitem>
+                        <listitem><para><emphasis><filename>&dash;&dash;align (in KBytes)</filename>:</emphasis>
+                            This option is a <filename>wic</filename>-specific
+                            option that says to start a partition on an
+                            x KBytes boundary.</para></listitem>
+                    </itemizedlist>
+                </para>
+            </section>
+
+            <section id='command-bootloader'>
+                <title>Command: bootloader</title>
+
+                <para>
+                    This command specifies how the boot loader should be
+                    configured and supports the following options:
+                    <note>
+                        Bootloader functionality and boot partitions are
+                        implemented by the various
+                        <filename>&dash;&dash;source</filename>
+			            plugins that implement bootloader functionality.
+                        The bootloader command essentially provides a means of
+                        modifying bootloader configuration.
+                    </note>
+                    <itemizedlist>
+                        <listitem><para><emphasis><filename>&dash;&dash;timeout</filename>:</emphasis>
+                            Specifies the number of seconds before the
+                            bootloader times out and boots the default option.
+                            </para></listitem>
+                        <listitem><para><emphasis><filename>&dash;&dash;append</filename>:</emphasis>
+                            Specifies kernel parameters.
+                            These parameters will be added to the syslinux
+                            <filename>APPEND</filename> or
+                            <filename>grub</filename> kernel command line.
+                            </para></listitem>
+                    </itemizedlist>
+                </para>
+            </section>
         </section>
     </section>
 
@@ -5774,9 +6819,9 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                         Given this example, issue the following commands on the
                         target:
                         <literallayout class='monospaced'>
-     # smart channel --add all type=rpm-md baseurl=http://server.name/rpm/all
-     # smart channel --add i585 type=rpm-md baseurl=http://server.name/rpm/i586
-     # smart channel --add qemux86 type=rpm-md baseurl=http://server.name/rpm/qemux86
+     # smart channel &dash;&dash;add all type=rpm-md baseurl=http://server.name/rpm/all
+     # smart channel &dash;&dash;add i585 type=rpm-md baseurl=http://server.name/rpm/i586
+     # smart channel &dash;&dash;add qemux86 type=rpm-md baseurl=http://server.name/rpm/qemux86
                         </literallayout>
                         Also from the target machine, fetch the repository
                         information using this command:
@@ -5900,16 +6945,6 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
      DISTRO_FEATURES_append = " ptest"
      EXTRA_IMAGE_FEATURES += "ptest-pkgs"
                     </literallayout>
-                    <note>
-                        The OpenEmbedded build system uses the
-                        <ulink url='&YOCTO_DOCS_REF_URL;#var-PTEST_ENABLED'><filename>PTEST_ENABLED</filename></ulink>
-                        variable to see if it should enable ptests during
-                        a build.
-                        This variable is enabled or disabled through your use
-                        of the <filename>DISTRO_FEATURES</filename> variable.
-                        You do not set <filename>PTEST_ENABLED</filename>
-                        directly.
-                    </note>
                     Once your build is complete, the ptest files are installed
                     into the <filename>/usr/lib/&lt;package&gt;/ptest</filename>
                     directory within the image, where
@@ -6989,9 +8024,9 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 are enabled).
                 Consequently, running the tests on other machine
                 means that you have to move the contents and call
-                <filename>runexported</filename> with "--deploy-dir PATH:
-                ./runexported.py --deploy-dir /new/path/on/this/machine testdata.json
-                runexported.py accepts other arguments as well, see --help.
+                <filename>runexported</filename> with "&dash;&dash;deploy-dir PATH:
+                ./runexported.py &dash;&dash;deploy-dir /new/path/on/this/machine testdata.json
+                runexported.py accepts other arguments as well, see &dash;&dash;help.
             </para>
 
             <para>
@@ -7457,7 +8492,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
      | DEBUG: SITE files ['endian-little', 'bit-32', 'ix86-common', 'common-linux', 'common-glibc', 'i586-linux', 'common']
      | DEBUG: Executing shell function do_compile
      | NOTE: make -j 16
-     | make --no-print-directory all-am
+     | make &dash;&dash;no-print-directory all-am
      | /bin/mkdir -p include/near
      | /bin/mkdir -p include/near
      | /bin/mkdir -p include/near
@@ -7498,7 +8533,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
      | ln -s /home/pokybuild/yocto-autobuilder/yocto-slave/nightly-x86/build/build/tmp/work/i586-poky-linux/neard/
        0.14-r0/neard-0.14/include/dbus.h include/near/dbus.h
      | ./src/genbuiltin nfctype1 nfctype2 nfctype3 nfctype4 p2p > src/builtin.h
-     | i586-poky-linux-gcc  -m32 -march=i586 --sysroot=/home/pokybuild/yocto-autobuilder/yocto-slave/nightly-x86/
+     | i586-poky-linux-gcc  -m32 -march=i586 &dash;&dash;sysroot=/home/pokybuild/yocto-autobuilder/yocto-slave/nightly-x86/
        build/build/tmp/sysroots/qemux86 -DHAVE_CONFIG_H -I. -I./include -I./src -I./gdbus  -I/home/pokybuild/
        yocto-autobuilder/yocto-slave/nightly-x86/build/build/tmp/sysroots/qemux86/usr/include/glib-2.0
        -I/home/pokybuild/yocto-autobuilder/yocto-slave/nightly-x86/build/build/tmp/sysroots/qemux86/usr/
@@ -7573,7 +8608,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 Here is some abbreviated, sample output with the
                 missing dependency clearly visible at the end:
                 <literallayout class='monospaced'>
-     i586-poky-linux-gcc  -m32 -march=i586 --sysroot=/home/scott-lenovo/......
+     i586-poky-linux-gcc  -m32 -march=i586 &dash;&dash;sysroot=/home/scott-lenovo/......
         .
         .
         .
@@ -7966,14 +9001,14 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
 
             <para>
                 <literallayout class='monospaced'>
-     # opcontrol --reset
-     # opcontrol --start --separate=lib --no-vmlinux -c 5
+     # opcontrol &dash;&dash;reset
+     # opcontrol &dash;&dash;start &dash;&dash;separate=lib &dash;&dash;no-vmlinux -c 5
               .
               .
         [do whatever is being profiled]
               .
               .
-     # opcontrol --stop
+     # opcontrol &dash;&dash;stop
      $ opreport -cl
                 </literallayout>
             </para>
@@ -7986,7 +9021,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 five levels deep.
                 <note>
                     To profile the kernel, you would specify the
-                    <filename>--vmlinux=/path/to/vmlinux</filename> option.
+                    <filename>&dash;&dash;vmlinux=/path/to/vmlinux</filename> option.
                     The <filename>vmlinux</filename> file is usually in the source directory in the
                     <filename>/boot/</filename> directory and must match the running kernel.
                 </note>
@@ -8049,7 +9084,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     With this connection, you just need to run "oprofile-server" on the device.
                     By default, OProfile listens on port 4224.
                     <note>
-                        You can change the port using the <filename>--port</filename> command-line
+                        You can change the port using the <filename>&dash;&dash;port</filename> command-line
                         option.
                     </note>
                 </para>
@@ -8139,14 +9174,14 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     If network access to the target is unavailable, you can generate
                     an archive for processing in <filename>oprofile-viewer</filename> as follows:
                     <literallayout class='monospaced'>
-     # opcontrol --reset
-     # opcontrol --start --separate=lib --no-vmlinux -c 5
+     # opcontrol &dash;&dash;reset
+     # opcontrol &dash;&dash;start &dash;&dash;separate=lib &dash;&dash;no-vmlinux -c 5
             .
             .
      [do whatever is being profiled]
             .
             .
-     # opcontrol --stop
+     # opcontrol &dash;&dash;stop
      # oparchive -o my_archive
                     </literallayout>
                 </para>

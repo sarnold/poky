@@ -22,13 +22,13 @@ TUI_DEPENDS = "${@perf_feature_enabled('perf-tui', 'libnewt slang', '',d)}"
 SCRIPTING_DEPENDS = "${@perf_feature_enabled('perf-scripting', 'perl python', '',d)}"
 
 DEPENDS = "virtual/kernel \
-           virtual/${MLPREFIX}libc \
-           ${MLPREFIX}elfutils \
-           ${MLPREFIX}binutils \
-           ${TUI_DEPENDS} \
-           ${SCRIPTING_DEPENDS} \
-           bison flex \
-          "
+    virtual/${MLPREFIX}libc \
+    ${MLPREFIX}elfutils \
+    ${MLPREFIX}binutils \
+    ${TUI_DEPENDS} \
+    ${SCRIPTING_DEPENDS} \
+    bison flex \
+"
 
 PROVIDES = "virtual/perf"
 
@@ -68,36 +68,29 @@ TUI_DEFINES = "${@perf_feature_enabled('perf-tui', '', 'NO_NEWT=1',d)}"
 # supported kernel.
 LDFLAGS="-ldl -lutil"
 
-EXTRA_OEMAKE = \
-		'-C ${S}/tools/perf \
-		O=${B} \
-		CROSS_COMPILE=${TARGET_PREFIX} \
-		ARCH=${ARCH} \
-		CC="${CC}" \
-		AR="${AR}" \
-		perfexecdir=${libexecdir} \
-		NO_GTK2=1 ${TUI_DEFINES} NO_DWARF=1 ${SCRIPTING_DEFINES} \
-		'
+EXTRA_OEMAKE = '\
+    -C ${S}/tools/perf \
+    O=${B} \
+    CROSS_COMPILE=${TARGET_PREFIX} \
+    ARCH=${ARCH} \
+    CC="${CC}" \
+    AR="${AR}" \
+    perfexecdir=${libexecdir} \
+    NO_GTK2=1 ${TUI_DEFINES} NO_DWARF=1 NO_LIBUNWIND=1 ${SCRIPTING_DEFINES} \
+'
 
 EXTRA_OEMAKE += "\
-	'prefix=${prefix}' \
-	'bindir=${bindir}' \
-	'sharedir=${datadir}' \
-	'sysconfdir=${sysconfdir}' \
-	'perfexecdir=${libexecdir}/perf-core' \
-	\
-	'ETC_PERFCONFIG=${@os.path.relpath(sysconfdir, prefix)}' \
-	'sharedir=${@os.path.relpath(datadir, prefix)}' \
-	'mandir=${@os.path.relpath(mandir, prefix)}' \
-	'infodir=${@os.path.relpath(infodir, prefix)}' \
+    'prefix=${prefix}' \
+    'bindir=${bindir}' \
+    'sharedir=${datadir}' \
+    'sysconfdir=${sysconfdir}' \
+    'perfexecdir=${libexecdir}/perf-core' \
+    \
+    'ETC_PERFCONFIG=${@os.path.relpath(sysconfdir, prefix)}' \
+    'sharedir=${@os.path.relpath(datadir, prefix)}' \
+    'mandir=${@os.path.relpath(mandir, prefix)}' \
+    'infodir=${@os.path.relpath(infodir, prefix)}' \
 "
-
-# PPC64 uses long long for u64 in the kernel, but powerpc's asm/types.h
-# prevents 64-bit userland from seeing this definition, instead defaulting
-# to u64 == long in userspace. Define __SANE_USERSPACE_TYPES__ to get 
-# int-ll64.h included. And MIPS64 has the same issue.
-EXTRA_OEMAKE_append_powerpc64 = ' CFLAGS=-D__SANE_USERSPACE_TYPES__'
-EXTRA_OEMAKE_append_mips64 = ' CFLAGS=-D__SANE_USERSPACE_TYPES__'
 
 PARALLEL_MAKE = ""
 

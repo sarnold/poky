@@ -90,6 +90,7 @@ wic_usage = """
  Help topics:
     overview           wic overview - General overview of wic
     plugins            wic plugins - Overview and API
+    kickstart          wic kickstart - wic kickstart reference
 
  See 'wic help <COMMAND or HELP TOPIC>' for more information on a specific
  command or help topic.
@@ -388,9 +389,9 @@ DESCRIPTION
     class (see the SourcePlugin source for details):
 
       do_prepare_partition()
-          Called to do the actual content population for a partition
-          i.e. it 'prepares' the final partition image which will be
-          incorporated into the disk image.
+          Called to do the actual content population for a
+          partition. In other words, it 'prepares' the final partition
+          image which will be incorporated into the disk image.
 
       do_configure_partition()
           Called before do_prepare_partition(), typically used to
@@ -400,23 +401,26 @@ DESCRIPTION
       do_install_disk()
           Called after all partitions have been prepared and assembled
           into a disk image.  This provides a hook to allow
-          finalization of a disk image e.g. to write an MBR to it.
+          finalization of a disk image, for example to write an MBR to
+          it.
 
       do_stage_partition()
-          Special content staging hook called before
+          Special content-staging hook called before
           do_prepare_partition(), normally empty.
 
-          Typically, a partition will just use the passed-in parame
-          e.g straight bootimg_dir, etc, but in some cases, things
-          need to be more tailored e.g. to use a deploy dir + /boot,
-          etc.  This hook allows those files to be staged in a
-          customized fashion.  Not that get_bitbake_var() allows you
-          to acces non-standard variables that you might want to use
-          for this.
+          Typically, a partition will just use the passed-in
+          parameters, for example the unmodified value of bootimg_dir.
+          In some cases however, things may need to be more tailored.
+          As an example, certain files may additionally need to be
+          take from bootimg_dir + /boot.  This hook allows those files
+          to be staged in a customized fashion.  Note that
+          get_bitbake_var() allows you to access non-standard
+          variables that you might want to use for these types of
+          situations.
 
     This scheme is extensible - adding more hooks is a simple matter
     of adding more plugin methods to SourcePlugin and derived classes.
-    The code that then needs to call the plugin methods the uses
+    The code that then needs to call the plugin methods uses
     plugin.get_source_plugin_methods() to find the method(s) needed by
     the call; this is done by filling up a dict with keys containing
     the method names of interest - on success, these will be filled in
@@ -439,8 +443,8 @@ DESCRIPTION
     artifacts, the result is an image or set of images that can be
     directly written onto media and used on a particular system.
 
-    The 'wic' command and the infrastructure it's based is by
-    definition incomplete - it's designed to allow the generation of
+    The 'wic' command and the infrastructure it's based on is by
+    definition incomplete - its purpose is to allow the generation of
     customized images, and as such was designed to be completely
     extensible via a plugin interface (see 'wic help plugins').
 
@@ -701,7 +705,7 @@ DESCRIPTION
                    wic command-line option (or the equivalent rootfs
                    derived from the '-e' command-line option).
                    Exactly what those contents and filesystem type end
-                   up being are depend on the given plugin
+                   up being are dependent on the given plugin
                    implementation.
 
          --ondisk or --ondrive: Forces the partition to be created on
@@ -715,7 +719,15 @@ DESCRIPTION
              ext3
              ext4
              btrfs
+             squashfs
              swap
+
+         --fsoptions: Specifies a free-form string of options to be
+                      used when mounting the filesystem. This string
+                      will be copied into the /etc/fstab file of the
+                      installed system and should be enclosed in
+                      quotes.  If not specified, the default string is
+                      "defaults".
 
          --label label: Specifies the label to give to the filesystem
                         to be made on the partition. If the given

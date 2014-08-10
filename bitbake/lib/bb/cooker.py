@@ -402,7 +402,7 @@ class BBCooker:
 
     def showEnvironment(self, buildfile = None, pkgs_to_build = []):
         """
-        Show the outer or per-package environment
+        Show the outer or per-recipe environment
         """
         fn = None
         envdata = None
@@ -818,7 +818,6 @@ class BBCooker:
         or to find all machine configuration files one could call:
         findFilesMatchingInDir(self, 'conf/machines', 'conf')
         """
-        import re
 
         matches = []
         p = re.compile(re.escape(filepattern))
@@ -1228,7 +1227,6 @@ class BBCooker:
         '''
         Create a new image with a "require"/"inherit" base_image statement
         '''
-        import re
         if timestamp:
             image_name = os.path.splitext(image)[0]
             timestr = time.strftime("-%Y%m%d-%H%M%S")

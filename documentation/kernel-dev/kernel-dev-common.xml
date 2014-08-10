@@ -85,7 +85,7 @@
                 you are using.
                 For example, if you are modifying the
                 <filename>meta/recipes-kernel/linux/linux-yocto_3.4.bb</filename>
-                recipe, the append file will typical be located as follows
+                recipe, the append file will typically be located as follows
                 within your custom layer:
                 <literallayout class='monospaced'>
      &lt;your-layer&gt;/recipes-kernel/linux/linux-yocto_3.4.bbappend
@@ -502,8 +502,9 @@
                 you can make them permanent by generating patches and
                 applying them to the
                 <ulink url='&YOCTO_DOCS_REF_URL;#var-SRC_URI'><filename>SRC_URI</filename></ulink>
-                statement as described in section
-                "<link linkend='applying-patches'>Applying Patches</link>" section.
+                statement as described in the
+                "<link linkend='applying-patches'>Applying Patches</link>"
+                section.
                 If you are not familiar with generating patches, refer to the
                 "<ulink url='&YOCTO_DOCS_DEV_URL;#creating-the-patch'>Creating the Patch</ulink>"
                 section in the Yocto Project Development Manual.

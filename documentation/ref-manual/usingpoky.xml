@@ -69,8 +69,9 @@
         </para>
 
         <note>
-            Building an image without GNU General Public License Version 3 (GPLv3) components
-            is supported for only minimal and base images.
+            Building an image without GNU General Public License Version
+            3 (GPLv3), or similarly licensed, components is supported for
+            only minimal and base images.
             See the "<link linkend='ref-images'>Images</link>" chapter for more information.
         </note>
     </section>
@@ -179,7 +180,7 @@
             <filename>do_patch</filename>, <filename>do_configure</filename>,
             <filename>do_compile</filename>, <filename>do_install</filename>,
             <filename>do_package</filename>,
-            <filename>do_package_write</filename>, and
+            <filename>do_package_write_*</filename>, and
             <filename>do_build</filename>.
             The default task is <filename>do_build</filename> and any tasks
             on which it depends build first.
@@ -720,7 +721,7 @@
      IMAGE_FEATURES = debug-tweaks x11-base apps-x11-core \
         package-management ssh-server-dropbear package-management
      IMAGE_LINGUAS = en-us en-gb
-     IMAGE_INSTALL = task-core-boot task-base-extended
+     IMAGE_INSTALL = packagegroup-core-boot packagegroup-base-extended
      BAD_RECOMMENDATIONS =
      ROOTFS_POSTPROCESS_COMMAND = buildhistory_get_image_installed ;   rootfs_update_timestamp ;
      IMAGE_POSTPROCESS_COMMAND = buildhistory_get_imageinfo ;

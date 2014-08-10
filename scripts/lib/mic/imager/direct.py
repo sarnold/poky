@@ -113,7 +113,15 @@ class DirectImageCreator(BaseImageCreator):
                 device_name = "/dev/" + p.disk + str(num + 1)
             else:
                 device_name = "/dev/" + p.disk + str(num)
-            fstab_entry = device_name + "\t" + p.mountpoint + "\t" + p.fstype + "\tdefaults\t0\t0\n"
+
+            opts = "defaults"
+            if p.fsopts:
+                opts = p.fsopts
+
+            fstab_entry = device_name + "\t" + \
+                          p.mountpoint + "\t" + \
+                          p.fstype + "\t" + \
+                          opts + "\t0\t0\n"
             fstab_lines.append(fstab_entry)
 
     def _write_fstab(self, fstab, fstab_lines):
@@ -262,10 +270,12 @@ class DirectImageCreator(BaseImageCreator):
             # when/if we need to actually do package selection we
             # should modify things to use those objects, but for now
             # we can avoid that.
+
+            fstab = self.__write_fstab(self.rootfs_dir.get("ROOTFS_DIR"))
+
             p.prepare(self, self.workdir, self.oe_builddir, self.rootfs_dir,
                       self.bootimg_dir, self.kernel_dir, self.native_sysroot)
 
-            fstab = self.__write_fstab(p.get_rootfs())
             self._restore_fstab(fstab)
 
             self.__instimage.add_partition(int(p.size),
@@ -278,6 +288,7 @@ class DirectImageCreator(BaseImageCreator):
                                            boot = p.active,
                                            align = p.align,
                                            part_type = p.part_type)
+
         self.__instimage.layout_partitions(self._ptable_format)
 
         self.__imgdir = self.workdir

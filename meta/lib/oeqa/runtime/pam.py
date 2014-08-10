@@ -2,7 +2,7 @@
 # Note that the image under test must have "pam" in DISTRO_FEATURES
 
 import unittest
-from oeqa.oetest import oeRuntimeTest
+from oeqa.oetest import oeRuntimeTest, skipModule
 from oeqa.utils.decorators import *
 
 def setUpModule():
@@ -12,6 +12,7 @@ def setUpModule():
 
 class PamBasicTest(oeRuntimeTest):
 
+    @testcase(287)
     @skipUnlessPassed('test_ssh')
     def test_pam(self):
         (status, output) = self.target.run('login --help')

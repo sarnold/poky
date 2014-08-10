@@ -2,6 +2,29 @@
 # certain recipes.
 #BBMASK = ""
 
+#
+# Parallelism Options
+#
+# These two options control how much parallelism BitBake should use. The first
+# option determines how many tasks bitbake should run in parallel:
+#
+#BB_NUMBER_THREADS ?= "4"
+#
+# Default to setting automatically based on cpu count
+#BB_NUMBER_THREADS ?= "${@oe.utils.cpu_count()}"
+#
+# The second option controls how many processes make should run in parallel when
+# running compile tasks:
+#
+#PARALLEL_MAKE ?= "-j 4"
+#
+# Default to setting automatically based on cpu count
+#PARALLEL_MAKE ?= "-j ${@oe.utils.cpu_count()}"
+#
+# For a quad-core machine, BB_NUMBER_THREADS = "4", PARALLEL_MAKE = "-j 4" would
+# be appropriate for example.
+
+
 # eglibc configurability is used to reduce minimal image's size.
 # the all supported eglibc options are listed in DISTRO_FEATURES_LIBC
 # and disabled by default. Uncomment and copy the DISTRO_FEATURES_LIBC
@@ -121,6 +144,13 @@
 #require conf/multilib.conf
 #MULTILIBS = "multilib:lib32"
 #DEFAULTTUNE_virtclass-multilib-lib32 = "x86"
+
+# Set RPM_PREFER_COLOR to configure preferred ABI when using rpm packaging
+# backend to generate a rootfs, choices are:
+# 1: ELF32 wins
+# 2: ELF64 wins
+# 3: ELF64 N32 wins (for mips64 or mips64el only)
+#RPM_PREFER_COLOR ?= "2"
 
 # The network based PR service host and port
 # Uncomment the following lines to enable PRservice.
@@ -252,7 +282,7 @@
 #useradd -p '' tester; \
 #groupadd developers; \
 #userdel nobody; \
-#groupdel -g video; \
+#groupdel video; \
 #groupmod -g 1020 developers; \
 #usermod -s /bin/sh tester; \
 #"

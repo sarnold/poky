@@ -10,7 +10,7 @@
 import os, re, mmap
 import unittest
 import inspect
-
+from oeqa.utils.decorators import LogResults
 
 def loadTests(tc):
 
@@ -36,24 +36,10 @@ def runTests(tc):
 
     return result
 
-
+@LogResults
 class oeTest(unittest.TestCase):
 
     longMessage = True
-    testFailures = []
-    testSkipped = []
-    testErrors = []
-
-    def run(self, result=None):
-        super(oeTest, self).run(result)
-
-        # we add to our own lists the results, we use those for decorators
-        if len(result.failures) > len(oeTest.testFailures):
-            oeTest.testFailures.append(str(result.failures[-1][0]).split()[0])
-        if len(result.skipped) > len(oeTest.testSkipped):
-            oeTest.testSkipped.append(str(result.skipped[-1][0]).split()[0])
-        if len(result.errors) > len(oeTest.testErrors):
-            oeTest.testErrors.append(str(result.errors[-1][0]).split()[0])
 
     @classmethod
     def hasPackage(self, pkg):
@@ -70,7 +56,6 @@ class oeTest(unittest.TestCase):
             return True
         else:
             return False
-
 
 class oeRuntimeTest(oeTest):
 

@@ -3,7 +3,7 @@ require gstreamer1.0-plugins.inc
 LICENSE = "GPLv2+ & LGPLv2.1+"
 
 # libid3tag
-DEPENDS += "gstreamer1.0-plugins-base zlib bzip2"
+DEPENDS += "gstreamer1.0-plugins-base zlib bzip2 libcap"
 
 inherit gettext
 
@@ -15,8 +15,8 @@ PACKAGECONFIG ??= " \
     "
 
 X11DEPENDS = "virtual/libx11 libsm libxrender libxfixes libxdamage"
-X11ENABLEOPTS = "--enable-x --enable-xvideo --enable-xshm"
-X11DISABLEOPTS = "--disable-x --disable-xvideo --disable-xshm"
+X11ENABLEOPTS = "--enable-x --enable-xshm"
+X11DISABLEOPTS = "--disable-x --disable-xshm"
 PACKAGECONFIG[x11]        = "${X11ENABLEOPTS},${X11DISABLEOPTS},${X11DEPENDS}"
 PACKAGECONFIG[pulseaudio] = "--enable-pulse,--disable-pulse,pulseaudio"
 PACKAGECONFIG[cairo]      = "--enable-cairo,--disable-cairo,cairo"

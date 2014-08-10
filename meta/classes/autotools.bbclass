@@ -135,23 +135,59 @@ python autotools_copy_aclocals () {
             return
 
     taskdepdata = d.getVar("BB_TASKDEPDATA", False)
+    #bb.warn(str(taskdepdata))
     pn = d.getVar("PN", True)
     aclocaldir = d.getVar("ACLOCALDIR", True)
     oe.path.remove(aclocaldir)
     bb.utils.mkdirhier(aclocaldir)
+    start = None
     configuredeps = []
+
     for dep in taskdepdata:
         data = taskdepdata[dep]
-        if data[1] == "do_configure" and data[0] != pn:
-            configuredeps.append(data[0])
+        if data[1] == "do_configure" and data[0] == pn:
+            start = dep
+            break
+    if not start:
+        bb.fatal("Couldn't find ourself in BB_TASKDEPDATA?")
+
+    # We need to find configure tasks which are either from <target> -> <target>
+    # or <native> -> <native> but not <target> -> <native> unless they're direct
+    # dependencies. This mirrors what would get restored from sstate.
+    done = [dep]
+    next = [dep]
+    while next:
+        new = []
+        for dep in next:
+            data = taskdepdata[dep]
+            for datadep in data[3]:
+                if datadep in done:
+                    continue
+                done.append(datadep)
+                if (not data[0].endswith("-native")) and taskdepdata[datadep][0].endswith("-native") and dep != start:
+                    continue
+                new.append(datadep)
+                if taskdepdata[datadep][1] == "do_configure":
+                    configuredeps.append(taskdepdata[datadep][0])
+        next = new
+
+    #configuredeps2 = []
+    #for dep in taskdepdata:
+    #    data = taskdepdata[dep]
+    #    if data[1] == "do_configure" and data[0] != pn:
+    #        configuredeps2.append(data[0])
+    #configuredeps.sort()
+    #configuredeps2.sort()
+    #bb.warn(str(configuredeps))
+    #bb.warn(str(configuredeps2))
 
     cp = []
     for c in configuredeps:
         if c.endswith("-native"):
             manifest = d.expand("${SSTATE_MANIFESTS}/manifest-${BUILD_ARCH}-%s.populate_sysroot" % c)
         elif c.startswith("nativesdk-"):
-            manifest = d.expand("${SSTATE_MANIFESTS}/manifest-${SDK_ARCH}-%s.populate_sysroot" % c)
-        elif "-cross-" in c or "-crosssdk-" in c:
+            manifest = d.expand("${SSTATE_MANIFESTS}/manifest-${SDK_ARCH}_${SDK_OS}-%s.populate_sysroot" % c)
+        elif "-cross-" in c or "-crosssdk" in c:
             continue
         else:
             manifest = d.expand("${SSTATE_MANIFESTS}/manifest-${MACHINE}-%s.populate_sysroot" % c)
@@ -168,7 +204,7 @@ python autotools_copy_aclocals () {
         if not os.path.exists(t):
             os.symlink(c, t)
 }
-autotools_copy_aclocals[vardepsexclude] += "MACHINE SDK_ARCH BUILD_ARCH BB_TASKDEPDATA"
+autotools_copy_aclocals[vardepsexclude] += "MACHINE SDK_ARCH BUILD_ARCH SDK_OS BB_TASKDEPDATA"
 
 autotools_do_configure() {
 	# WARNING: gross hack follows:
@@ -195,7 +231,7 @@ autotools_do_configure() {
 		else
 			acpaths="${acpaths}"
 		fi
-		AUTOV=`automake --version |head -n 1 |sed "s/.* //;s/\.[0-9]\+$//"`
+		AUTOV=`automake --version | sed -e '1{s/.* //;s/\.[0-9]\+$//};q'`
 		automake --version
 		echo "AUTOV is $AUTOV"
 		if [ -d ${STAGING_DATADIR_NATIVE}/aclocal-$AUTOV ]; then

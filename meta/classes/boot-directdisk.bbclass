@@ -71,10 +71,19 @@ boot_direct_populate() {
 	# Install bzImage, initrd, and rootfs.img in DEST for all loaders to use.
 	install -m 0644 ${STAGING_KERNEL_DIR}/bzImage $dest/vmlinuz
 
-	if [ -n "${INITRD}" ] && [ -s "${INITRD}" ]; then
-		install -m 0644 ${INITRD} $dest/initrd
+	# initrd is made of concatenation of multiple filesystem images
+	if [ -n "${INITRD}" ]; then
+		rm -f $dest/initrd
+		for fs in ${INITRD}
+		do
+			if [ -s "${fs}" ]; then
+				cat ${fs} >> $dest/initrd
+			else
+				bbfatal "${fs} is invalid. initrd image creation failed."
+			fi
+		done
+		chmod 0644 $dest/initrd
 	fi
-
 }
 
 build_boot_dd() {

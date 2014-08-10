@@ -33,6 +33,8 @@ class BuildEnvironment(models.Model):
     bbport      = models.IntegerField(default = -1)
     bbtoken     = models.CharField(max_length = 126, blank = True)
     bbstate     = models.IntegerField(choices = SERVER_STATE, default = SERVER_STOPPED)
+    sourcedir   = models.CharField(max_length = 512, blank = True)
+    builddir    = models.CharField(max_length = 512, blank = True)
     lock        = models.IntegerField(choices = LOCK_STATE, default = LOCK_FREE)
     created     = models.DateTimeField(auto_now_add = True)
     updated     = models.DateTimeField(auto_now = True)
@@ -46,12 +48,14 @@ class BuildRequest(models.Model):
     REQ_QUEUED = 1
     REQ_INPROGRESS = 2
     REQ_COMPLETED = 3
+    REQ_FAILED = 4
 
     REQUEST_STATE = (
         (REQ_CREATED, "created"),
         (REQ_QUEUED, "queued"),
         (REQ_INPROGRESS, "in progress"),
         (REQ_COMPLETED, "completed"),
+        (REQ_FAILED, "failed"),
     )
 
     project     = models.ForeignKey(Project)
@@ -69,6 +73,8 @@ class BRLayer(models.Model):
     name        = models.CharField(max_length = 100)
     giturl      = models.CharField(max_length = 254)
     commit      = models.CharField(max_length = 254)
+    dirpath     = models.CharField(max_length = 254)
+
 
 class BRVariable(models.Model):
     req         = models.ForeignKey(BuildRequest)
@@ -80,4 +86,8 @@ class BRTarget(models.Model):
     target      = models.CharField(max_length=100)
     task        = models.CharField(max_length=100, null=True)
 
-
+class BRError(models.Model):
+    req         = models.ForeignKey(BuildRequest)
+    errtype     = models.CharField(max_length=100)
+    errmsg      = models.TextField()
+    traceback   = models.TextField()

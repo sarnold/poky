@@ -764,16 +764,6 @@ class MultiProcessCache(object):
 
         self.cachedata = data
 
-    def internSet(self, items):
-        new = set()
-        for i in items:
-            new.add(intern(i))
-        return new
-
-    def compress_keys(self, data):
-        # Override in subclasses if desired
-        return
-
     def create_cachedata(self):
         data = [{}]
         return data
@@ -814,15 +804,7 @@ class MultiProcessCache(object):
 
         glf = bb.utils.lockfile(self.cachefile + ".lock")
 
-        try:
-            with open(self.cachefile, "rb") as f:
-                p = pickle.Unpickler(f)
-                data, version = p.load()
-        except (IOError, EOFError):
-            data, version = None, None
-
-        if version != self.__class__.CACHE_VERSION:
-            data = self.create_cachedata()
+        data = self.cachedata
 
         for f in [y for y in os.listdir(os.path.dirname(self.cachefile)) if y.startswith(os.path.basename(self.cachefile) + '-')]:
             f = os.path.join(os.path.dirname(self.cachefile), f)
@@ -831,15 +813,15 @@ class MultiProcessCache(object):
                     p = pickle.Unpickler(fd)
                     extradata, version = p.load()
             except (IOError, EOFError):
-                extradata, version = self.create_cachedata(), None
+                os.unlink(f)
+                continue
 
             if version != self.__class__.CACHE_VERSION:
+                os.unlink(f)
                 continue
 
             self.merge_data(extradata, data)
             os.unlink(f)
-
-        self.compress_keys(data)
 
         with open(self.cachefile, "wb") as f:
             p = pickle.Pickler(f, -1)
