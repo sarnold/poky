@@ -7,7 +7,19 @@ DESCRIPTION = "Packages required to satisfy the Linux Standard Base (LSB) specif
 PR = "r10"
 LICENSE = "MIT"
 
-inherit packagegroup
+inherit packagegroup distro_features_check
+
+# The libxt, libxtst and others require x11 in DISTRO_FEATURES
+REQUIRED_DISTRO_FEATURES = "x11"
+
+#
+# We will skip parsing this packagegeoup for non-glibc systems
+#
+python __anonymous () {
+    if d.getVar('TCLIBC', True) != "glibc":
+        raise bb.parse.SkipPackage("incompatible with %s C library" %
+                                   d.getVar('TCLIBC', True))
+}
 
 PACKAGES = "\
     packagegroup-core-lsb \
@@ -43,8 +55,8 @@ RDEPENDS_packagegroup-core-lsb = "\
 RDEPENDS_packagegroup-core-sys-extended = "\
     curl \
     dhcp-client \
-    gamin \
     hdparm \
+    lighttpd \
     libaio \
     lrzsz \
     lzo \
@@ -128,7 +140,7 @@ RDEPENDS_packagegroup-core-lsb-core = "\
     cups \
     diffutils \
     ed \
-    eglibc-utils \
+    glibc-utils \
     elfutils \
     file \
     findutils \
@@ -158,7 +170,7 @@ RDEPENDS_packagegroup-core-lsb-core = "\
     util-linux \
     xdg-utils \
     \
-    eglibc \
+    glibc \
     libgcc \
     libpam \
     libxml2 \
@@ -191,8 +203,8 @@ RDEPENDS_packagegroup-core-lsb-python = "\
 "
 
 def get_libqt3(d):
-    if 'linuxstdbase' in d.getVar('DISTROOVERRIDES') or "":
-        if 'qt3' in d.getVar('BBFILE_COLLECTIONS') or "":
+    if 'linuxstdbase' in d.getVar('DISTROOVERRIDES', False) or "":
+        if 'qt3' in d.getVar('BBFILE_COLLECTIONS', False) or "":
             return 'libqt-mt3'
 
         bb.warn('The meta-qt3 layer should be added, this layer provides Qt 3.x' \
@@ -211,6 +223,7 @@ QT4PKGS = " \
     ${@bb.utils.contains("DISTRO_FEATURES", "opengl", "libqtopengl4", "", d)} \
     "
 QT4PKGS_mips64 = ""
+QT4PKGS_mips64n32 = ""
 
 SUMMARY_packagegroup-core-lsb-desktop = "LSB Desktop"
 DESCRIPTION_packagegroup-core-lsb-desktop = "Packages required to support libraries \
@@ -245,13 +258,13 @@ RDEPENDS_packagegroup-core-lsb-runtime-add = "\
     libxml-parser-perl \
     libxml-perl \
     libxml-sax-perl \
-    eglibc-localedatas \
-    eglibc-gconvs \
-    eglibc-charmaps \
-    eglibc-binaries \
-    eglibc-localedata-posix \
-    eglibc-extra-nss \
-    eglibc-pcprofile \
+    glibc-localedatas \
+    glibc-gconvs \
+    glibc-charmaps \
+    glibc-binaries \
+    glibc-localedata-posix \
+    glibc-extra-nss \
+    glibc-pcprofile \
     libclass-isa-perl \
     libenv-perl \
     libdumpvalue-perl \

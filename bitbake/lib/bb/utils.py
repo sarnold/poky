@@ -29,10 +29,14 @@ import multiprocessing
 import fcntl
 import subprocess
 import glob
+import fnmatch
 import traceback
 import errno
+import signal
 from commands import getstatusoutput
 from contextlib import contextmanager
+from ctypes import cdll
+
 
 logger = logging.getLogger("BitBake.Util")
 
@@ -52,6 +56,9 @@ def set_context(ctx):
 
 # Context used in better_exec, eval
 _context = clean_context()
+
+class VersionStringException(Exception):
+    """Exception raised when an invalid version specification is found"""
 
 def explode_version(s):
     r = []
@@ -128,6 +135,28 @@ def vercmp_string(a, b):
     tb = split_version(b)
     return vercmp(ta, tb)
 
+def vercmp_string_op(a, b, op):
+    """
+    Compare two versions and check if the specified comparison operator matches the result of the comparison.
+    This function is fairly liberal about what operators it will accept since there are a variety of styles
+    depending on the context.
+    """
+    res = vercmp_string(a, b)
+    if op in ('=', '=='):
+        return res == 0
+    elif op == '<=':
+        return res <= 0
+    elif op == '>=':
+        return res >= 0
+    elif op in ('>', '>>'):
+        return res > 0
+    elif op in ('<', '<<'):
+        return res < 0
+    elif op == '!=':
+        return res != 0
+    else:
+        raise VersionStringException('Unsupported comparison operator "%s"' % op)
+
 def explode_deps(s):
     """
     Take an RDEPENDS style string of format:
@@ -188,6 +217,7 @@ def explode_dep_versions2(s):
                 i = i[1:]
             else:
                 # This is an unsupported case!
+                raise VersionStringException('Invalid version specification in "(%s" - invalid or missing operator' % i)
                 lastcmp = (i or "")
                 i = ""
             i.strip()
@@ -264,7 +294,7 @@ def _print_trace(body, line):
 def better_compile(text, file, realfile, mode = "exec"):
     """
     A better compile method. This method
-    will print  the offending lines.
+    will print the offending lines.
     """
     try:
         return compile(text, file, mode)
@@ -386,10 +416,30 @@ def fileslocked(files):
     for lock in locks:
         bb.utils.unlockfile(lock)
 
-def lockfile(name, shared=False, retry=True):
+@contextmanager
+def timeout(seconds):
+    def timeout_handler(signum, frame):
+        pass
+
+    original_handler = signal.signal(signal.SIGALRM, timeout_handler)
+
+    try:
+        signal.alarm(seconds)
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, original_handler)
+
+def lockfile(name, shared=False, retry=True, block=False):
     """
-    Use the file fn as a lock file, return when the lock has been acquired.
-    Returns a variable to pass to unlockfile().
+    Use the specified file as a lock file, return when the lock has
+    been acquired. Returns a variable to pass to unlockfile().
+    Parameters:
+        retry: True to re-try locking if it fails, False otherwise
+        block: True to block until the lock succeeds, False otherwise
+    The retry and block parameters are kind of equivalent unless you
+    consider the possibility of sending a signal to the process to break
+    out - at which point you want block=True rather than retry=True.
     """
     dirname = os.path.dirname(name)
     mkdirhier(dirname)
@@ -402,7 +452,7 @@ def lockfile(name, shared=False, retry=True):
     op = fcntl.LOCK_EX
     if shared:
         op = fcntl.LOCK_SH
-    if not retry:
+    if not retry and not block:
         op = op | fcntl.LOCK_NB
 
     while True:
@@ -522,7 +572,7 @@ def filter_environment(good_vars):
         os.unsetenv(key)
         del os.environ[key]
 
-    if len(removed_vars):
+    if removed_vars:
         logger.debug(1, "Removed the following variables from the environment: %s", ", ".join(removed_vars.keys()))
 
     return removed_vars
@@ -530,7 +580,7 @@ def filter_environment(good_vars):
 def approved_variables():
     """
     Determine and return the list of whitelisted variables which are approved
-    to remain in the envrionment.
+    to remain in the environment.
     """
     if 'BB_PRESERVE_ENV' in os.environ:
         return os.environ.keys()
@@ -575,11 +625,30 @@ def build_environment(d):
         if export:
             os.environ[var] = d.getVar(var, True) or ""
 
+def _check_unsafe_delete_path(path):
+    """
+    Basic safeguard against recursively deleting something we shouldn't. If it returns True,
+    the caller should raise an exception with an appropriate message.
+    NOTE: This is NOT meant to be a security mechanism - just a guard against silly mistakes
+    with potentially disastrous results.
+    """
+    extra = ''
+    # HOME might not be /home/something, so in case we can get it, check against it
+    homedir = os.environ.get('HOME', '')
+    if homedir:
+        extra = '|%s' % homedir
+    if re.match('(/|//|/home|/home/[^/]*%s)$' % extra, os.path.abspath(path)):
+        return True
+    return False
+
 def remove(path, recurse=False):
     """Equivalent to rm -f or rm -rf"""
     if not path:
         return
     if recurse:
+        for name in glob.glob(path):
+            if _check_unsafe_delete_path(path):
+                raise Exception('bb.utils.remove: called with dangerous path "%s" and recurse=True, refusing to delete!' % path)
         # shutil.rmtree(name) would be ideal but its too slow
         subprocess.call(['rm', '-rf'] + glob.glob(path))
         return
@@ -593,6 +662,8 @@ def remove(path, recurse=False):
 def prunedir(topdir):
     # Delete everything reachable from the directory named in 'topdir'.
     # CAUTION:  This is dangerous!
+    if _check_unsafe_delete_path(topdir):
+        raise Exception('bb.utils.prunedir: called with dangerous path "%s", refusing to delete!' % topdir)
     for root, dirs, files in os.walk(topdir, topdown = False):
         for name in files:
             os.remove(os.path.join(root, name))
@@ -672,7 +743,12 @@ def movefile(src, dest, newmtime = None, sstat = None):
     renamefailed = 1
     if sstat[stat.ST_DEV] == dstat[stat.ST_DEV]:
         try:
-            os.rename(src, dest)
+            # os.rename needs to know the dest path ending with file name
+            # so append the file name to a path only if it's a dir specified
+            srcfname = os.path.basename(src)
+            destpath = os.path.join(dest, srcfname) if os.path.isdir(dest) \
+                        else dest
+            os.rename(src, destpath)
             renamefailed = 0
         except Exception as e:
             if e[0] != errno.EXDEV:
@@ -861,22 +937,23 @@ def cpu_count():
 def nonblockingfd(fd):
     fcntl.fcntl(fd, fcntl.F_SETFL, fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK)
 
-def process_profilelog(fn):
-    # Redirect stdout to capture profile information
-    pout = open(fn + '.processed', 'w')
-    so = sys.stdout.fileno()
-    orig_so = os.dup(sys.stdout.fileno())
-    os.dup2(pout.fileno(), so)
+def process_profilelog(fn, pout = None):
+    # Either call with a list of filenames and set pout or a filename and optionally pout.
+    if not pout:
+        pout = fn + '.processed'
+    pout = open(pout, 'w')
    
     import pstats
-    p = pstats.Stats(fn)
+    if isinstance(fn, list):
+        p = pstats.Stats(*fn, stream=pout)
+    else:
+        p = pstats.Stats(fn, stream=pout)
     p.sort_stats('time')
     p.print_stats()
     p.print_callers()
     p.sort_stats('cumulative')
     p.print_stats()
 
-    os.dup2(orig_so, so)
     pout.flush()
     pout.close()  
 
@@ -884,5 +961,377 @@ def process_profilelog(fn):
 # Was present to work around multiprocessing pool bugs in python < 2.7.3
 #
 def multiprocessingpool(*args, **kwargs):
+
+    import multiprocessing.pool
+    #import multiprocessing.util
+    #multiprocessing.util.log_to_stderr(10)
+    # Deal with a multiprocessing bug where signals to the processes would be delayed until the work
+    # completes. Putting in a timeout means the signals (like SIGINT/SIGTERM) get processed.
+    def wrapper(func):
+        def wrap(self, timeout=None):
+            return func(self, timeout=timeout if timeout is not None else 1e100)
+        return wrap
+    multiprocessing.pool.IMapIterator.next = wrapper(multiprocessing.pool.IMapIterator.next)
+
     return multiprocessing.Pool(*args, **kwargs)
 
+def exec_flat_python_func(func, *args, **kwargs):
+    """Execute a flat python function (defined with def funcname(args):...)"""
+    # Prepare a small piece of python code which calls the requested function
+    # To do this we need to prepare two things - a set of variables we can use to pass
+    # the values of arguments into the calling function, and the list of arguments for
+    # the function being called
+    context = {}
+    funcargs = []
+    # Handle unnamed arguments
+    aidx = 1
+    for arg in args:
+        argname = 'arg_%s' % aidx
+        context[argname] = arg
+        funcargs.append(argname)
+        aidx += 1
+    # Handle keyword arguments
+    context.update(kwargs)
+    funcargs.extend(['%s=%s' % (arg, arg) for arg in kwargs.iterkeys()])
+    code = 'retval = %s(%s)' % (func, ', '.join(funcargs))
+    comp = bb.utils.better_compile(code, '<string>', '<string>')
+    bb.utils.better_exec(comp, context, code, '<string>')
+    return context['retval']
+
+def edit_metadata(meta_lines, variables, varfunc, match_overrides=False):
+    """Edit lines from a recipe or config file and modify one or more
+    specified variable values set in the file using a specified callback
+    function. Lines are expected to have trailing newlines.
+    Parameters:
+        meta_lines: lines from the file; can be a list or an iterable
+            (e.g. file pointer)
+        variables: a list of variable names to look for. Functions
+            may also be specified, but must be specified with '()' at
+            the end of the name. Note that the function doesn't have
+            any intrinsic understanding of _append, _prepend, _remove,
+            or overrides, so these are considered as part of the name.
+            These values go into a regular expression, so regular
+            expression syntax is allowed.
+        varfunc: callback function called for every variable matching
+            one of the entries in the variables parameter. The function
+            should take four arguments:
+                varname: name of variable matched
+                origvalue: current value in file
+                op: the operator (e.g. '+=')
+                newlines: list of lines up to this point. You can use
+                    this to prepend lines before this variable setting
+                    if you wish.
+            and should return a three-element tuple:
+                newvalue: new value to substitute in, or None to drop
+                    the variable setting entirely. (If the removal
+                    results in two consecutive blank lines, one of the
+                    blank lines will also be dropped).
+                newop: the operator to use - if you specify None here,
+                    the original operation will be used.
+                indent: number of spaces to indent multi-line entries,
+                    or -1 to indent up to the level of the assignment
+                    and opening quote, or a string to use as the indent.
+                minbreak: True to allow the first element of a
+                    multi-line value to continue on the same line as
+                    the assignment, False to indent before the first
+                    element.
+        match_overrides: True to match items with _overrides on the end,
+            False otherwise
+    Returns a tuple:
+        updated:
+            True if changes were made, False otherwise.
+        newlines:
+            Lines after processing
+    """
+
+    var_res = {}
+    if match_overrides:
+        override_re = '(_[a-zA-Z0-9-_$(){}]+)?'
+    else:
+        override_re = ''
+    for var in variables:
+        if var.endswith('()'):
+            var_res[var] = re.compile('^(%s%s)[ \\t]*\([ \\t]*\)[ \\t]*{' % (var[:-2].rstrip(), override_re))
+        else:
+            var_res[var] = re.compile('^(%s%s)[ \\t]*[?+:.]*=[+.]*[ \\t]*(["\'])' % (var, override_re))
+
+    updated = False
+    varset_start = ''
+    varlines = []
+    newlines = []
+    in_var = None
+    full_value = ''
+    var_end = ''
+
+    def handle_var_end():
+        prerun_newlines = newlines[:]
+        op = varset_start[len(in_var):].strip()
+        (newvalue, newop, indent, minbreak) = varfunc(in_var, full_value, op, newlines)
+        changed = (prerun_newlines != newlines)
+
+        if newvalue is None:
+            # Drop the value
+            return True
+        elif newvalue != full_value or (newop not in [None, op]):
+            if newop not in [None, op]:
+                # Callback changed the operator
+                varset_new = "%s %s" % (in_var, newop)
+            else:
+                varset_new = varset_start
+
+            if isinstance(indent, (int, long)):
+                if indent == -1:
+                    indentspc = ' ' * (len(varset_new) + 2)
+                else:
+                    indentspc = ' ' * indent
+            else:
+                indentspc = indent
+            if in_var.endswith('()'):
+                # A function definition
+                if isinstance(newvalue, list):
+                    newlines.append('%s {\n%s%s\n}\n' % (varset_new, indentspc, ('\n%s' % indentspc).join(newvalue)))
+                else:
+                    if not newvalue.startswith('\n'):
+                        newvalue = '\n' + newvalue
+                    if not newvalue.endswith('\n'):
+                        newvalue = newvalue + '\n'
+                    newlines.append('%s {%s}\n' % (varset_new, newvalue))
+            else:
+                # Normal variable
+                if isinstance(newvalue, list):
+                    if not newvalue:
+                        # Empty list -> empty string
+                        newlines.append('%s ""\n' % varset_new)
+                    elif minbreak:
+                        # First item on first line
+                        if len(newvalue) == 1:
+                            newlines.append('%s "%s"\n' % (varset_new, newvalue[0]))
+                        else:
+                            newlines.append('%s "%s \\\n' % (varset_new, newvalue[0]))
+                            for item in newvalue[1:]:
+                                newlines.append('%s%s \\\n' % (indentspc, item))
+                            newlines.append('%s"\n' % indentspc)
+                    else:
+                        # No item on first line
+                        newlines.append('%s " \\\n' % varset_new)
+                        for item in newvalue:
+                            newlines.append('%s%s \\\n' % (indentspc, item))
+                        newlines.append('%s"\n' % indentspc)
+                else:
+                    newlines.append('%s "%s"\n' % (varset_new, newvalue))
+            return True
+        else:
+            # Put the old lines back where they were
+            newlines.extend(varlines)
+            # If newlines was touched by the function, we'll need to return True
+            return changed
+
+    checkspc = False
+
+    for line in meta_lines:
+        if in_var:
+            value = line.rstrip()
+            varlines.append(line)
+            if in_var.endswith('()'):
+                full_value += '\n' + value
+            else:
+                full_value += value[:-1]
+            if value.endswith(var_end):
+                if in_var.endswith('()'):
+                    if full_value.count('{') - full_value.count('}') >= 0:
+                        continue
+                full_value = full_value[:-1]
+                if handle_var_end():
+                    updated = True
+                    checkspc = True
+                in_var = None
+        else:
+            skip = False
+            for (varname, var_re) in var_res.iteritems():
+                res = var_re.match(line)
+                if res:
+                    isfunc = varname.endswith('()')
+                    if isfunc:
+                        splitvalue = line.split('{', 1)
+                        var_end = '}'
+                    else:
+                        var_end = res.groups()[-1]
+                        splitvalue = line.split(var_end, 1)
+                    varset_start = splitvalue[0].rstrip()
+                    value = splitvalue[1].rstrip()
+                    if not isfunc and value.endswith('\\'):
+                        value = value[:-1]
+                    full_value = value
+                    varlines = [line]
+                    in_var = res.group(1)
+                    if isfunc:
+                        in_var += '()'
+                    if value.endswith(var_end):
+                        full_value = full_value[:-1]
+                        if handle_var_end():
+                            updated = True
+                            checkspc = True
+                        in_var = None
+                    skip = True
+                    break
+            if not skip:
+                if checkspc:
+                    checkspc = False
+                    if newlines[-1] == '\n' and line == '\n':
+                        # Squash blank line if there are two consecutive blanks after a removal
+                        continue
+                newlines.append(line)
+    return (updated, newlines)
+
+
+def edit_metadata_file(meta_file, variables, varfunc):
+    """Edit a recipe or config file and modify one or more specified
+    variable values set in the file using a specified callback function.
+    The file is only written to if the value(s) actually change.
+    This is basically the file version of edit_metadata(), see that
+    function's description for parameter/usage information.
+    Returns True if the file was written to, False otherwise.
+    """
+    with open(meta_file, 'r') as f:
+        (updated, newlines) = edit_metadata(f, variables, varfunc)
+    if updated:
+        with open(meta_file, 'w') as f:
+            f.writelines(newlines)
+    return updated
+
+
+def edit_bblayers_conf(bblayers_conf, add, remove):
+    """Edit bblayers.conf, adding and/or removing layers"""
+
+    import fnmatch
+
+    def remove_trailing_sep(pth):
+        if pth and pth[-1] == os.sep:
+            pth = pth[:-1]
+        return pth
+
+    def layerlist_param(value):
+        if not value:
+            return []
+        elif isinstance(value, list):
+            return [remove_trailing_sep(x) for x in value]
+        else:
+            return [remove_trailing_sep(value)]
+
+    notadded = []
+    notremoved = []
+
+    addlayers = layerlist_param(add)
+    removelayers = layerlist_param(remove)
+
+    # Need to use a list here because we can't set non-local variables from a callback in python 2.x
+    bblayercalls = []
+
+    def handle_bblayers(varname, origvalue, op, newlines):
+        bblayercalls.append(varname)
+        updated = False
+        bblayers = [remove_trailing_sep(x) for x in origvalue.split()]
+        if removelayers:
+            for removelayer in removelayers:
+                matched = False
+                for layer in bblayers:
+                    if fnmatch.fnmatch(layer, removelayer):
+                        updated = True
+                        matched = True
+                        bblayers.remove(layer)
+                        break
+                if not matched:
+                    notremoved.append(removelayer)
+        if addlayers:
+            for addlayer in addlayers:
+                if addlayer not in bblayers:
+                    updated = True
+                    bblayers.append(addlayer)
+                else:
+                    notadded.append(addlayer)
+            del addlayers[:]
+
+        if updated:
+            return (bblayers, None, 2, False)
+        else:
+            return (origvalue, None, 2, False)
+
+    edit_metadata_file(bblayers_conf, ['BBLAYERS'], handle_bblayers)
+
+    if not bblayercalls:
+        raise Exception('Unable to find BBLAYERS in %s' % bblayers_conf)
+
+    return (notadded, notremoved)
+
+
+def get_file_layer(filename, d):
+    """Determine the collection (as defined by a layer's layer.conf file) containing the specified file"""
+    collections = (d.getVar('BBFILE_COLLECTIONS', True) or '').split()
+    collection_res = {}
+    for collection in collections:
+        collection_res[collection] = d.getVar('BBFILE_PATTERN_%s' % collection, True) or ''
+
+    def path_to_layer(path):
+        # Use longest path so we handle nested layers
+        matchlen = 0
+        match = None
+        for collection, regex in collection_res.iteritems():
+            if len(regex) > matchlen and re.match(regex, path):
+                matchlen = len(regex)
+                match = collection
+        return match
+
+    result = None
+    bbfiles = (d.getVar('BBFILES', True) or '').split()
+    bbfilesmatch = False
+    for bbfilesentry in bbfiles:
+        if fnmatch.fnmatch(filename, bbfilesentry):
+            bbfilesmatch = True
+            result = path_to_layer(bbfilesentry)
+
+    if not bbfilesmatch:
+        # Probably a bbclass
+        result = path_to_layer(filename)
+
+    return result
+
+
+# Constant taken from http://linux.die.net/include/linux/prctl.h
+PR_SET_PDEATHSIG = 1
+
+class PrCtlError(Exception):
+    pass
+
+def signal_on_parent_exit(signame):
+    """
+    Trigger signame to be sent when the parent process dies
+    """
+    signum = getattr(signal, signame)
+    # http://linux.die.net/man/2/prctl
+    result = cdll['libc.so.6'].prctl(PR_SET_PDEATHSIG, signum)
+    if result != 0:
+        raise PrCtlError('prctl failed with error code %s' % result)
+
+#
+# Manually call the ioprio syscall. We could depend on other libs like psutil
+# however this gets us enough of what we need to bitbake for now without the
+# dependency
+#
+_unamearch = os.uname()[4]
+IOPRIO_WHO_PROCESS = 1
+IOPRIO_CLASS_SHIFT = 13
+
+def ioprio_set(who, cls, value):
+    NR_ioprio_set = None
+    if _unamearch == "x86_64":
+      NR_ioprio_set = 251
+    elif _unamearch[0] == "i" and _unamearch[2:3] == "86":
+      NR_ioprio_set = 289
+
+    if NR_ioprio_set:
+        ioprio = value | (cls << IOPRIO_CLASS_SHIFT)
+        rc = cdll['libc.so.6'].syscall(NR_ioprio_set, IOPRIO_WHO_PROCESS, who, ioprio)
+        if rc != 0:
+            raise ValueError("Unable to set ioprio, syscall returned %s" % rc)
+    else:
+        bb.warn("Unable to set IO Prio for arch %s" % _unamearch)

@@ -97,7 +97,7 @@ class RunQueueScheduler(object):
     def __init__(self, runqueue, rqdata):
         """
         The default scheduler just returns the first buildable task (the
-        priority map is sorted by task numer)
+        priority map is sorted by task number)
         """
         self.rq = runqueue
         self.rqdata = rqdata
@@ -186,7 +186,7 @@ class RunQueueSchedulerCompletion(RunQueueSchedulerSpeed):
     """
     A scheduler optimised to complete .bb files are quickly as possible. The
     priority map is sorted by task weight, but then reordered so once a given
-    .bb file starts to build, its completed as quickly as possible. This works
+    .bb file starts to build, it's completed as quickly as possible. This works
     well where disk space is at a premium and classes like OE's rm_work are in
     force.
     """
@@ -430,7 +430,7 @@ class RunQueueData:
             # Nothing to do
             return 0
 
-        logger.info("Preparing runqueue")
+        logger.info("Preparing RunQueue")
 
         # Step A - Work out a list of tasks to run
         #
@@ -793,9 +793,20 @@ class RunQueueData:
         if self.cooker.configuration.invalidate_stamp:
             for (fn, target) in self.target_pairs:
                 for st in self.cooker.configuration.invalidate_stamp.split(','):
-                    invalidate_task(fn, "do_%s" % st, True)
+                    if not st.startswith("do_"):
+                        st = "do_%s" % st
+                    invalidate_task(fn, st, True)
 
-        # Interate over the task list and call into the siggen code
+        # Create and print to the logs a virtual/xxxx -> PN (fn) table
+        virtmap = taskData.get_providermap()
+        virtpnmap = {}
+        for v in virtmap:
+            virtpnmap[v] = self.dataCache.pkg_fn[virtmap[v]]
+            bb.debug(2, "%s resolved to: %s (%s)" % (v, virtpnmap[v], virtmap[v]))
+        if hasattr(bb.parse.siggen, "tasks_resolved"):
+            bb.parse.siggen.tasks_resolved(virtmap, virtpnmap, self.dataCache)
+
+        # Iterate over the task list and call into the siggen code
         dealtwith = set()
         todeal = set(range(len(self.runq_fnid)))
         while len(todeal) > 0:
@@ -859,15 +870,18 @@ class RunQueue:
 
     def _start_worker(self, fakeroot = False, rqexec = None):
         logger.debug(1, "Starting bitbake-worker")
+        magic = "decafbad"
+        if self.cooker.configuration.profile:
+            magic = "decafbadbad"
         if fakeroot:
             fakerootcmd = self.cfgData.getVar("FAKEROOTCMD", True)
             fakerootenv = (self.cfgData.getVar("FAKEROOTBASEENV", True) or "").split()
             env = os.environ.copy()
             for key, value in (var.split('=') for var in fakerootenv):
                 env[key] = value
-            worker = subprocess.Popen([fakerootcmd, "bitbake-worker", "decafbad"], stdout=subprocess.PIPE, stdin=subprocess.PIPE, env=env)
+            worker = subprocess.Popen([fakerootcmd, "bitbake-worker", magic], stdout=subprocess.PIPE, stdin=subprocess.PIPE, env=env)
         else:
-            worker = subprocess.Popen(["bitbake-worker", "decafbad"], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+            worker = subprocess.Popen(["bitbake-worker", magic], stdout=subprocess.PIPE, stdin=subprocess.PIPE)
         bb.utils.nonblockingfd(worker.stdout)
         workerpipe = runQueuePipe(worker.stdout, None, self.cfgData, self, rqexec)
 
@@ -876,9 +890,7 @@ class RunQueue:
             "fakerootenv" : self.rqdata.dataCache.fakerootenv,
             "fakerootdirs" : self.rqdata.dataCache.fakerootdirs,
             "fakerootnoenv" : self.rqdata.dataCache.fakerootnoenv,
-            "hashes" : bb.parse.siggen.taskhash,
-            "hash_deps" : bb.parse.siggen.runtaskdeps,
-            "sigchecksums" : bb.parse.siggen.file_checksum_values,
+            "sigdata" : bb.parse.siggen.get_taskdata(),
             "runq_hash" : self.rqdata.runq_hash,
             "logdefaultdebug" : bb.msg.loggerDefaultDebugLevel,
             "logdefaultverbose" : bb.msg.loggerDefaultVerbose,
@@ -967,11 +979,11 @@ class RunQueue:
 
         stampfile = bb.build.stampfile(taskname, self.rqdata.dataCache, fn)
 
-        # If the stamp is missing its not current
+        # If the stamp is missing, it's not current
         if not os.access(stampfile, os.F_OK):
             logger.debug(2, "Stampfile %s not available", stampfile)
             return False
-        # If its a 'nostamp' task, it's not current
+        # If it's a 'nostamp' task, it's not current
         taskdep = self.rqdata.dataCache.task_deps[fn]
         if 'nostamp' in taskdep and taskname in taskdep['nostamp']:
             logger.debug(2, "%s.%s is nostamp\n", fn, taskname)
@@ -1063,7 +1075,7 @@ class RunQueue:
             retval = self.rqexe.execute()
 
         if self.state is runQueueCleanUp:
-           self.rqexe.finish()
+            retval = self.rqexe.finish()
 
         if (self.state is runQueueComplete or self.state is runQueueFailed) and self.rqexe:
             self.teardown_workers()
@@ -1094,6 +1106,13 @@ class RunQueue:
         except bb.runqueue.TaskFailure:
             raise
         except SystemExit:
+            raise
+        except bb.BBHandledException:
+            try:
+                self.teardown_workers()
+            except:
+                pass
+            self.state = runQueueComplete
             raise
         except:
             logger.error("An uncaught exception occured in runqueue, please see the failure below:")
@@ -1153,9 +1172,14 @@ class RunQueue:
             sq_hash.append(self.rqdata.runq_hash[task])
             sq_taskname.append(taskname)
             sq_task.append(task)
-        call = self.hashvalidate + "(sq_fn, sq_task, sq_hash, sq_hashfn, d)"
-        locs = { "sq_fn" : sq_fn, "sq_task" : sq_taskname, "sq_hash" : sq_hash, "sq_hashfn" : sq_hashfn, "d" : self.cooker.data }
-        valid = bb.utils.better_eval(call, locs)
+        locs = { "sq_fn" : sq_fn, "sq_task" : sq_taskname, "sq_hash" : sq_hash, "sq_hashfn" : sq_hashfn, "d" : self.cooker.expanded_data }
+        try:
+            call = self.hashvalidate + "(sq_fn, sq_task, sq_hash, sq_hashfn, d, siginfo=True)"
+            valid = bb.utils.better_eval(call, locs)
+        # Handle version with no siginfo parameter
+        except TypeError:
+            call = self.hashvalidate + "(sq_fn, sq_task, sq_hash, sq_hashfn, d)"
+            valid = bb.utils.better_eval(call, locs)
         for v in valid:
             valid_new.add(sq_task[v])
 
@@ -1267,6 +1291,9 @@ class RunQueueExecute:
         if rq.fakeworkerpipe:
             rq.fakeworkerpipe.setrunqueueexec(self)
 
+        if self.number_tasks <= 0:
+             bb.fatal("Invalid BB_NUMBER_THREADS %s" % self.number_tasks)
+
     def runqueue_process_waitpid(self, task, status):
 
         # self.build_stamps[pid] may not exist when use shared work directory.
@@ -1305,15 +1332,14 @@ class RunQueueExecute:
         if self.stats.active > 0:
             bb.event.fire(runQueueExitWait(self.stats.active), self.cfgData)
             self.rq.read_workers()
-
-            return
+            return self.rq.active_fds()
 
         if len(self.failed_fnids) != 0:
             self.rq.state = runQueueFailed
-            return
+            return True
 
         self.rq.state = runQueueComplete
-        return
+        return True
 
     def check_dependencies(self, task, taskdeps, setscene = False):
         if not self.rq.depvalidate:
@@ -1331,7 +1357,7 @@ class RunQueueExecute:
             taskname = self.rqdata.runq_task[depid]
             taskdata[dep] = [pn, taskname, fn]
         call = self.rq.depvalidate + "(task, taskdata, notneeded, d)"
-        locs = { "task" : task, "taskdata" : taskdata, "notneeded" : self.scenequeue_notneeded, "d" : self.cooker.data }
+        locs = { "task" : task, "taskdata" : taskdata, "notneeded" : self.scenequeue_notneeded, "d" : self.cooker.expanded_data }
         valid = bb.utils.better_eval(call, locs)
         return valid
 
@@ -1400,7 +1426,7 @@ class RunQueueExecuteTasks(RunQueueExecute):
 
             call = self.rq.setsceneverify + "(covered, tasknames, fnids, fns, d, invalidtasks=invalidtasks)"
             call2 = self.rq.setsceneverify + "(covered, tasknames, fnids, fns, d)"
-            locs = { "covered" : self.rq.scenequeue_covered, "tasknames" : self.rqdata.runq_task, "fnids" : self.rqdata.runq_fnid, "fns" : self.rqdata.taskData.fn_index, "d" : self.cooker.data, "invalidtasks" : invalidtasks }
+            locs = { "covered" : self.rq.scenequeue_covered, "tasknames" : self.rqdata.runq_task, "fnids" : self.rqdata.runq_fnid, "fns" : self.rqdata.taskData.fn_index, "d" : self.cooker.expanded_data, "invalidtasks" : invalidtasks }
             # Backwards compatibility with older versions without invalidtasks
             try:
                 covered_remove = bb.utils.better_eval(call, locs)
@@ -1565,7 +1591,12 @@ class RunQueueExecuteTasks(RunQueueExecute):
             taskdep = self.rqdata.dataCache.task_deps[fn]
             if 'fakeroot' in taskdep and taskname in taskdep['fakeroot'] and not self.cooker.configuration.dry_run:
                 if not self.rq.fakeworker:
-                    self.rq.start_fakeworker(self)
+                    try:
+                        self.rq.start_fakeworker(self)
+                    except OSError as exc:
+                        logger.critical("Failed to spawn fakeroot worker to run %s:%s: %s" % (fn, taskname, str(exc)))
+                        self.rq.state = runQueueFailed
+                        return True
                 self.rq.fakeworker.stdin.write("<runtask>" + pickle.dumps((fn, task, taskname, False, self.cooker.collection.get_file_appends(fn), taskdepdata)) + "</runtask>")
                 self.rq.fakeworker.stdin.flush()
             else:
@@ -1610,7 +1641,8 @@ class RunQueueExecuteTasks(RunQueueExecute):
                 pn = self.rqdata.dataCache.pkg_fn[fn]
                 taskname = self.rqdata.runq_task[revdep]
                 deps = self.rqdata.runq_depends[revdep]
-                taskdepdata[revdep] = [pn, taskname, fn, deps]
+                provides = self.rqdata.dataCache.fn_provides[fn]
+                taskdepdata[revdep] = [pn, taskname, fn, deps, provides]
                 for revdep2 in deps:
                     if revdep2 not in taskdepdata:
                         additional.append(revdep2)
@@ -1688,7 +1720,7 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
 
         process_endpoints(endpoints)
 
-        # Build a list of setscene tasks which as "unskippable"
+        # Build a list of setscene tasks which are "unskippable"
         # These are direct endpoints referenced by the build
         endpoints2 = {}
         sq_revdeps2 = []
@@ -1820,7 +1852,7 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
                 sq_taskname.append(taskname)
                 sq_task.append(task)
             call = self.rq.hashvalidate + "(sq_fn, sq_task, sq_hash, sq_hashfn, d)"
-            locs = { "sq_fn" : sq_fn, "sq_task" : sq_taskname, "sq_hash" : sq_hash, "sq_hashfn" : sq_hashfn, "d" : self.cooker.data }
+            locs = { "sq_fn" : sq_fn, "sq_task" : sq_taskname, "sq_hash" : sq_hash, "sq_hashfn" : sq_hashfn, "d" : self.cooker.expanded_data }
             valid = bb.utils.better_eval(call, locs)
 
             valid_new = stamppresent
@@ -1844,6 +1876,10 @@ class RunQueueExecuteScenequeue(RunQueueExecute):
                 realtask = self.rqdata.runq_setscene[task]
                 realdep = self.rqdata.runq_setscene[dep]
                 logger.debug(2, "%s was unavailable and is a hard dependency of %s so skipping" % (self.rqdata.get_user_idstring(realtask), self.rqdata.get_user_idstring(realdep)))
+                self.scenequeue_updatecounters(dep, fail)
+                continue
+            if task not in self.sq_revdeps2[dep]:
+                # May already have been removed by the fail case above
                 continue
             self.sq_revdeps2[dep].remove(task)
             if len(self.sq_revdeps2[dep]) == 0:
@@ -2041,7 +2077,7 @@ class sceneQueueEvent(runQueueEvent):
 
 class runQueueTaskStarted(runQueueEvent):
     """
-    Event notifing a task was started
+    Event notifying a task was started
     """
     def __init__(self, task, stats, rq, noexec=False):
         runQueueEvent.__init__(self, task, stats, rq)
@@ -2049,7 +2085,7 @@ class runQueueTaskStarted(runQueueEvent):
 
 class sceneQueueTaskStarted(sceneQueueEvent):
     """
-    Event notifing a setscene task was started
+    Event notifying a setscene task was started
     """
     def __init__(self, task, stats, rq, noexec=False):
         sceneQueueEvent.__init__(self, task, stats, rq)
@@ -2057,7 +2093,7 @@ class sceneQueueTaskStarted(sceneQueueEvent):
 
 class runQueueTaskFailed(runQueueEvent):
     """
-    Event notifing a task failed
+    Event notifying a task failed
     """
     def __init__(self, task, stats, exitcode, rq):
         runQueueEvent.__init__(self, task, stats, rq)
@@ -2065,7 +2101,7 @@ class runQueueTaskFailed(runQueueEvent):
 
 class sceneQueueTaskFailed(sceneQueueEvent):
     """
-    Event notifing a setscene task failed
+    Event notifying a setscene task failed
     """
     def __init__(self, task, stats, exitcode, rq):
         sceneQueueEvent.__init__(self, task, stats, rq)
@@ -2081,17 +2117,17 @@ class sceneQueueComplete(sceneQueueEvent):
 
 class runQueueTaskCompleted(runQueueEvent):
     """
-    Event notifing a task completed
+    Event notifying a task completed
     """
 
 class sceneQueueTaskCompleted(sceneQueueEvent):
     """
-    Event notifing a setscene task completed
+    Event notifying a setscene task completed
     """
 
 class runQueueTaskSkipped(runQueueEvent):
     """
-    Event notifing a task was skipped
+    Event notifying a task was skipped
     """
     def __init__(self, task, stats, rq, reason):
         runQueueEvent.__init__(self, task, stats, rq)

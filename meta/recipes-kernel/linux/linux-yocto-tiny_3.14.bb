@@ -1,19 +1,21 @@
-require recipes-kernel/linux/linux-yocto.inc
-
-KBRANCH = "standard/tiny/base"
+KBRANCH ?= "standard/tiny/base"
 LINUX_KERNEL_TYPE = "tiny"
 KCONFIG_MODE = "--allnoconfig"
 
-LINUX_VERSION ?= "3.14.5"
+require recipes-kernel/linux/linux-yocto.inc
 
-KMETA = "meta"
+LINUX_VERSION ?= "3.14.36"
 
-SRCREV_machine ?= "5724bf17acbf54cf61003ab242448fd96d189384"
-SRCREV_meta ?= "b2af4e3528e65583c98f3a08c6edb0cad7a120b0"
+KMETA = "kernel-meta"
+KCONF_BSP_AUDIT_LEVEL = "2"
+
+SRCREV_machine ?= "578602a722dbfb260801f3b37c6eafd2abb2340d"
+SRCREV_meta ?= "060fa80b7996250001ee90c50a4978c8fdb87fc4"
 
 PV = "${LINUX_VERSION}+git${SRCPV}"
 
-SRC_URI = "git://git.yoctoproject.org/linux-yocto-3.14.git;bareclone=1;branch=${KBRANCH},meta;name=machine,meta"
+SRC_URI = "git://git.yoctoproject.org/linux-yocto-3.14.git;branch=${KBRANCH};name=machine; \
+           git://git.yoctoproject.org/yocto-kernel-cache;type=kmeta;name=meta;branch=yocto-3.14;destsuffix=${KMETA}"
 
 COMPATIBLE_MACHINE = "(qemux86)"
 

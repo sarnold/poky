@@ -55,6 +55,7 @@ def get_class_handlers():
     return _handlers
 
 def set_class_handlers(h):
+    global _handlers
     _handlers = h
 
 def clean_class_handlers():
@@ -67,9 +68,15 @@ _ui_logfilters = {}
 _ui_handler_seq = 0
 _event_handler_map = {}
 _catchall_handlers = {}
+_eventfilter = None
+_uiready = False
 
 def execute_handler(name, handler, event, d):
     event.data = d
+    addedd = False
+    if 'd' not in __builtins__:
+        __builtins__['d'] = d
+        addedd = True
     try:
         ret = handler(event)
     except (bb.parse.SkipRecipe, bb.BBHandledException):
@@ -85,6 +92,8 @@ def execute_handler(name, handler, event, d):
         raise
     finally:
         del event.data
+        if addedd:
+            del __builtins__['d']
 
 def fire_class_handlers(event, d):
     if isinstance(event, logging.LogRecord):
@@ -94,6 +103,9 @@ def fire_class_handlers(event, d):
     evt_hmap = _event_handler_map.get(eid, {})
     for name, handler in _handlers.iteritems():
         if name in _catchall_handlers or name in evt_hmap:
+            if _eventfilter:
+                if not _eventfilter(name, handler, event, d):
+                    continue
             execute_handler(name, handler, event, d)
 
 ui_queue = []
@@ -102,7 +114,7 @@ def print_ui_queue():
     """If we're exiting before a UI has been spawned, display any queued
     LogRecords to the console."""
     logger = logging.getLogger("BitBake")
-    if not _ui_handlers:
+    if not _uiready:
         from bb.msg import BBLogFormatter
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(BBLogFormatter("%(levelname)s: %(message)s"))
@@ -124,7 +136,7 @@ def print_ui_queue():
                 logger.handle(event)
 
 def fire_ui_handlers(event, d):
-    if not _ui_handlers:
+    if not _uiready:
         # No UI handlers registered yet, queue up the messages
         ui_queue.append(event)
         return
@@ -165,7 +177,7 @@ def fire_from_worker(event, d):
     fire_ui_handlers(event, d)
 
 noop = lambda _: None
-def register(name, handler, mask=[]):
+def register(name, handler, mask=None):
     """Register an Event handler"""
 
     # already registered
@@ -204,7 +216,14 @@ def remove(name, handler):
     """Remove an Event handler"""
     _handlers.pop(name)
 
-def register_UIHhandler(handler):
+def set_eventfilter(func):
+    global _eventfilter
+    _eventfilter = func
+
+def register_UIHhandler(handler, mainui=False):
+    if mainui:
+        global _uiready
+        _uiready = True
     bb.event._ui_handler_seq = bb.event._ui_handler_seq + 1
     _ui_handlers[_ui_handler_seq] = handler
     level, debug_domains = bb.msg.constructLogOptions()
@@ -355,11 +374,12 @@ class BuildStarted(BuildBase, OperationStarted):
 
 class BuildCompleted(BuildBase, OperationCompleted):
     """bbmake build run completed"""
-    def __init__(self, total, n, p, failures = 0):
+    def __init__(self, total, n, p, failures=0, interrupted=0):
         if not failures:
             OperationCompleted.__init__(self, total, "Building Succeeded")
         else:
             OperationCompleted.__init__(self, total, "Building Failed")
+        self._interrupted = interrupted
         BuildBase.__init__(self, n, p, failures)
 
 class DiskFull(Event):
@@ -374,7 +394,7 @@ class DiskFull(Event):
 class NoProvider(Event):
     """No Provider for an Event"""
 
-    def __init__(self, item, runtime=False, dependees=None, reasons=[], close_matches=[]):
+    def __init__(self, item, runtime=False, dependees=None, reasons=None, close_matches=None):
         Event.__init__(self)
         self._item = item
         self._runtime = runtime
@@ -488,6 +508,16 @@ class TargetsTreeGenerated(Event):
         Event.__init__(self)
         self._model = model
 
+class ReachableStamps(Event):
+    """
+    An event listing all stamps reachable after parsing
+    which the metadata may use to clean up stale data
+    """
+
+    def __init__(self, stamps):
+        Event.__init__(self)
+        self.stamps = stamps
+
 class FilesMatchingFound(Event):
     """
     Event when a list of files matching the supplied pattern has
@@ -598,7 +628,7 @@ class MetadataEvent(Event):
 
 class SanityCheck(Event):
     """
-    Event to runs sanity checks, either raise errors or generate events as return status.
+    Event to run sanity checks, either raise errors or generate events as return status.
     """
     def __init__(self, generateevents = True):
         Event.__init__(self)
@@ -606,7 +636,7 @@ class SanityCheck(Event):
 
 class SanityCheckPassed(Event):
     """
-    Event to indicate sanity check is passed
+    Event to indicate sanity check has passed
     """
 
 class SanityCheckFailed(Event):

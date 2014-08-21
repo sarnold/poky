@@ -13,23 +13,28 @@ PN = "gcc-cross-${TARGET_ARCH}"
 
 require gcc-configure-common.inc
 
-EXTRA_OECONF += " --enable-poison-system-directories"
-EXTRA_OECONF_append_sh4 = " --with-multilib-list= --enable-incomplete-targets "
+EXTRA_OECONF += "--enable-poison-system-directories"
+EXTRA_OECONF_append_sh4 = " \
+    --with-multilib-list= \
+    --enable-incomplete-targets \
+"
 
-EXTRA_OECONF += "--disable-libunwind-exceptions \
-                 --with-mpfr=${STAGING_DIR_NATIVE}${prefix_native} \
-                 --with-system-zlib "
+EXTRA_OECONF += "\
+    --with-mpfr=${STAGING_DIR_NATIVE}${prefix_native} \
+    --with-system-zlib \
+"
 
-EXTRA_OECONF_PATHS = " \
-                      --with-gxx-include-dir=${STAGING_DIR_TARGET}${target_includedir}/c++/${BINV} \
-                      --with-sysroot=${STAGING_DIR_TARGET} \
-                      --with-build-sysroot=${STAGING_DIR_TARGET}"
+DEPENDS_remove_libc-baremetal := "virtual/${TARGET_PREFIX}libc-for-gcc"
+EXTRA_OECONF_append_libc-baremetal = " --without-headers"
+EXTRA_OECONF_remove_libc-baremetal = "--enable-threads=posix"
+
+EXTRA_OECONF_PATHS = "\
+    --with-gxx-include-dir=/not/exist${target_includedir}/c++/${BINV} \
+    --with-sysroot=/not/exist \
+    --with-build-sysroot=${STAGING_DIR_TARGET} \
+"
 
 ARCH_FLAGS_FOR_TARGET += "-isystem${STAGING_DIR_TARGET}${target_includedir}"
-
-do_configure_prepend () {
-	sed -i 's/BUILD_INFO=info/BUILD_INFO=/' ${S}/gcc/configure
-}
 
 do_compile () {
 	export CC="${BUILD_CC}"

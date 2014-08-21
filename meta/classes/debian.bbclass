@@ -9,6 +9,8 @@
 # Better expressed as ensure all RDEPENDS package before we package
 # This means we can't have circular RDEPENDS/RRECOMMENDS
 
+AUTO_LIBNAME_PKGS = "${PACKAGES}"
+
 inherit package
 
 DEBIANRDEP = "do_packagedata"
@@ -49,6 +51,13 @@ python debian_package_name_hook () {
         except (os.error, AttributeError):
             return 0
         return (s[stat.ST_MODE] & stat.S_IEXEC)
+
+    def add_rprovides(pkg, d):
+        newpkg = d.getVar('PKG_' + pkg, False)
+        if newpkg and newpkg != pkg:
+            provs = (d.getVar('RPROVIDES_' + pkg, True) or "").split()
+            if pkg not in provs:
+                d.appendVar('RPROVIDES_' + pkg, " " + pkg + " (=" + d.getVar("PKGV", True) + ")")
 
     def auto_libname(packages, orig_pkg):
         sonames = []
@@ -96,9 +105,10 @@ python debian_package_name_hook () {
             if soname_result:
                 (pkgname, devname) = soname_result
                 for pkg in packages.split():
-                    if (d.getVar('PKG_' + pkg) or d.getVar('DEBIAN_NOAUTONAME_' + pkg)):
+                    if (d.getVar('PKG_' + pkg, False) or d.getVar('DEBIAN_NOAUTONAME_' + pkg, False)):
+                        add_rprovides(pkg, d)
                         continue
-                    debian_pn = d.getVar('DEBIANNAME_' + pkg)
+                    debian_pn = d.getVar('DEBIANNAME_' + pkg, False)
                     if debian_pn:
                         newpkg = debian_pn
                     elif pkg == orig_pkg:
@@ -111,6 +121,9 @@ python debian_package_name_hook () {
                             newpkg = mlpre + newpkg
                     if newpkg != pkg:
                         d.setVar('PKG_' + pkg, newpkg)
+                        add_rprovides(pkg, d)
+        else:
+            add_rprovides(orig_pkg, d)
 
     # reversed sort is needed when some package is substring of another
     # ie in ncurses we get without reverse sort: 

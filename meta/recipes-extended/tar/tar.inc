@@ -10,23 +10,27 @@ inherit autotools gettext texinfo
 
 EXTRA_OECONF += "DEFAULT_RMT_DIR=${base_sbindir}"
 
-EXTRAINSTALL = "do_install_extra"
-EXTRAINSTALL_class-nativesdk = ""
+# Let aclocal use the relative path for the m4 file rather than the
+# absolute since tar has a lot of m4 files, otherwise there might
+# be an "Argument list too long" error when it is built in a long/deep
+# directory.
+acpaths = "-I ./m4"
 
 do_install () {
     autotools_do_install
-    ${EXTRAINSTALL}
+    ln -s tar ${D}${bindir}/gtar
 }
 
-do_install_extra () {
-    install -d ${D}${base_bindir}
-    mv ${D}${bindir}/tar ${D}${base_bindir}/tar
-    rmdir ${D}${bindir}/
+do_install_append_class-target() {
+    if [ "${base_bindir}" != "${bindir}" ]; then
+        install -d ${D}${base_bindir}
+        mv ${D}${bindir}/tar ${D}${base_bindir}/tar
+        mv ${D}${bindir}/gtar ${D}${base_bindir}/gtar
+        rmdir ${D}${bindir}/
+    fi
 }
 
 PACKAGES =+ "${PN}-rmt"
-
-PACKAGECONFIG[acl] = "--with-posix-acls, --without-posix-acls, acl,"
 
 FILES_${PN}-rmt = "${base_sbindir}/rmt*"
 
@@ -42,4 +46,7 @@ ALTERNATIVE_${PN}-rmt_class-nativesdk = ""
 ALTERNATIVE_LINK_NAME[tar] = "${base_bindir}/tar"
 ALTERNATIVE_LINK_NAME[rmt] = "${base_sbindir}/rmt"
 
-BBCLASSEXTEND = "nativesdk"
+PROVIDES_append_class-native = " tar-replacement-native"
+NATIVE_PACKAGE_PATH_SUFFIX = "/${PN}"
+
+BBCLASSEXTEND = "native nativesdk"

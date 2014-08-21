@@ -21,8 +21,21 @@
 
 # Django settings for Toaster project.
 
+import os, re
+
+# Temporary toggle for Image customisation
+CUSTOM_IMAGE = False
+if os.environ.get("CUSTOM_IMAGE", None) is not None:
+    CUSTOM_IMAGE = True
+
 DEBUG = True
 TEMPLATE_DEBUG = DEBUG
+
+# Set to True to see the SQL queries in console
+SQL_DEBUG = False
+if os.environ.get("TOASTER_SQLDEBUG", None) is not None:
+    SQL_DEBUG = True
+
 
 ADMINS = (
     # ('Your Name', 'your_email@example.com'),
@@ -41,8 +54,13 @@ DATABASES = {
     }
 }
 
+# Needed when Using sqlite especially to add a longer timeout for waiting
+# for the database lock to be  released
+# https://docs.djangoproject.com/en/1.6/ref/databases/#database-is-locked-errors
+if 'sqlite' in DATABASES['default']['ENGINE']:
+    DATABASES['default']['OPTIONS'] = { 'timeout': 20 }
+
 # Reinterpret database settings if we have DATABASE_URL environment variable defined
-import os, re
 
 if 'DATABASE_URL' in os.environ:
     dburl = os.environ['DATABASE_URL']
@@ -74,11 +92,9 @@ if 'DATABASE_URL' in os.environ:
     else:
         raise Exception("FIXME: Please implement missing database url schema for url: %s" % dburl)
 
-
+BUILD_MODE = False
 if 'TOASTER_MANAGED' in os.environ and os.environ['TOASTER_MANAGED'] == "1":
-    MANAGED = True
-else:
-    MANAGED = False
+    BUILD_MODE = True
 
 # Allows current database settings to be exported as a DATABASE_URL environment variable value
 
@@ -208,6 +224,26 @@ MIDDLEWARE_CLASSES = (
     # 'django.middleware.clickjacking.XFrameOptionsMiddleware',
 )
 
+CACHES = {
+    #        'default': {
+    #            'BACKEND': 'django.core.cache.backends.memcached.MemcachedCache',
+    #            'LOCATION': '127.0.0.1:11211',
+    #        },
+           'default': {
+               'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+               'LOCATION': '/tmp/django-default-cache',
+               'TIMEOUT': 1,
+            }
+          }
+
+
+from os.path import dirname as DN
+SITE_ROOT=DN(DN(os.path.abspath(__file__)))
+
+import subprocess
+TOASTER_BRANCH = subprocess.Popen('git branch | grep "^* " | tr -d "* "', cwd = SITE_ROOT, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()[0]
+TOASTER_REVISION = subprocess.Popen('git rev-parse HEAD ', cwd = SITE_ROOT, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()[0]
+
 ROOT_URLCONF = 'toastermain.urls'
 
 # Python dotted path to the WSGI application used by Django's runserver.
@@ -231,27 +267,59 @@ TEMPLATE_CONTEXT_PROCESSORS = ('django.contrib.auth.context_processors.auth',
  )
 
 INSTALLED_APPS = (
-    #'django.contrib.sites',
-    #'django.contrib.messages',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.messages',
+    'django.contrib.sessions',
+    'django.contrib.admin',
     'django.contrib.staticfiles',
-    # Uncomment the next line to enable the admin:
-    # 'django.contrib.admin',
+
     # Uncomment the next line to enable admin documentation:
     # 'django.contrib.admindocs',
     'django.contrib.humanize',
-    'orm',
+    'bldcollector',
     'toastermain',
-    'toastergui',
-    'bldviewer',
     'south',
-    'bldcontrol',
 )
 
-# if we run in managed mode, we need user support
-if MANAGED:
-    INSTALLED_APPS = ('django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',) + INSTALLED_APPS
+
+INTERNAL_IPS = ['127.0.0.1', '192.168.2.28']
+
+# Load django-fresh is TOASTER_DEVEL is set, and the module is available
+FRESH_ENABLED = False
+if os.environ.get('TOASTER_DEVEL', None) is not None:
+    try:
+        import fresh
+        MIDDLEWARE_CLASSES = ("fresh.middleware.FreshMiddleware",) + MIDDLEWARE_CLASSES
+        INSTALLED_APPS = INSTALLED_APPS + ('fresh',)
+        FRESH_ENABLED = True
+    except:
+        pass
+
+DEBUG_PANEL_ENABLED = False
+if os.environ.get('TOASTER_DEVEL', None) is not None:
+    try:
+        import debug_toolbar, debug_panel
+        MIDDLEWARE_CLASSES = ('debug_panel.middleware.DebugPanelMiddleware',) + MIDDLEWARE_CLASSES
+        #MIDDLEWARE_CLASSES = MIDDLEWARE_CLASSES + ('debug_toolbar.middleware.DebugToolbarMiddleware',)
+        INSTALLED_APPS = INSTALLED_APPS + ('debug_toolbar','debug_panel',)
+        DEBUG_PANEL_ENABLED = True
+
+        # this cache backend will be used by django-debug-panel
+        CACHES['debug-panel'] = {
+                'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+                'LOCATION': '/var/tmp/debug-panel-cache',
+                'TIMEOUT': 300,
+                'OPTIONS': {
+                    'MAX_ENTRIES': 200
+                }
+        }
+
+    except:
+        pass
+
+
+SOUTH_TESTS_MIGRATE = False
 
 
 # We automatically detect and install applications here if
@@ -260,8 +328,12 @@ import os
 currentdir = os.path.dirname(__file__)
 for t in os.walk(os.path.dirname(currentdir)):
     modulename = os.path.basename(t[0])
+    #if we have a virtualenv skip it to avoid incorrect imports
+    if os.environ.has_key('VIRTUAL_ENV') and os.environ['VIRTUAL_ENV'] in t[0]:
+        continue
+
     if ("views.py" in t[2] or "models.py" in t[2]) and not modulename in INSTALLED_APPS:
-        INSTALLED_APPS.append(modulename)
+        INSTALLED_APPS = INSTALLED_APPS + (modulename,)
 
 # A sample logging configuration. The only tangible logging
 # performed by this configuration is to send an email to
@@ -276,21 +348,42 @@ LOGGING = {
             '()': 'django.utils.log.RequireDebugFalse'
         }
     },
+    'formatters': {
+        'datetime': {
+            'format': '%(asctime)s %(levelname)s %(message)s'
+        }
+    },
     'handlers': {
         'mail_admins': {
             'level': 'ERROR',
             'filters': ['require_debug_false'],
             'class': 'django.utils.log.AdminEmailHandler'
+        },
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'datetime',
         }
     },
     'loggers': {
+        'toaster' : {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
         'django.request': {
-            'handlers': ['mail_admins'],
-            'level': 'ERROR',
+            'handlers': ['console'],
+            'level': 'WARN',
             'propagate': True,
         },
     }
 }
+
+if DEBUG and SQL_DEBUG:
+    LOGGING['loggers']['django.db.backends'] = {
+            'level': 'DEBUG',
+            'handlers': ['console'],
+        }
+
 
 # If we're using sqlite, we need to tweak the performance a bit
 from django.db.backends.signals import connection_created
@@ -302,3 +395,19 @@ connection_created.connect(activate_synchronous_off)
 #
 
 
+class InvalidString(str):
+    def __mod__(self, other):
+        from django.template.base import TemplateSyntaxError
+        raise TemplateSyntaxError(
+            "Undefined variable or unknown value for: \"%s\"" % other)
+
+TEMPLATE_STRING_IF_INVALID = InvalidString("%s")
+
+import sys
+sys.path.append(
+    os.path.join(
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "contrib"),
+            "django-aggregate-if-master")
+    )

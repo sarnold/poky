@@ -11,6 +11,7 @@
 #  -Check if packages contains .debug directories or .so files
 #   where they should be in -dev or -dbg
 #  -Check if config.log contains traces to broken autoconf tests
+#  -Check invalid characters (non-utf8) on some package metadata
 #  -Ensure that binaries in base_[bindir|sbindir|libdir] do not link
 #   into exec_prefix
 #  -Check that scripts in base_[bindir|sbindir|libdir] do not reference
@@ -29,13 +30,18 @@ QA_SANE = "True"
 WARN_QA ?= "ldflags useless-rpaths rpaths staticdev libdir xorg-driver-abi \
             textrel already-stripped incompatible-license files-invalid \
             installed-vs-shipped compile-host-path install-host-path \
-            pn-overrides infodir build-deps \
+            pn-overrides infodir build-deps file-rdeps \
+            unknown-configure-option symlink-to-sysroot multilib \
+            invalid-packageconfig host-user-contaminated \
             "
 ERROR_QA ?= "dev-so debug-deps dev-deps debug-files arch pkgconfig la \
             perms dep-cmp pkgvarcheck perm-config perm-line perm-link \
             split-strip packages-list pkgv-undefined var-undefined \
-            version-going-backwards \
+            version-going-backwards expanded-d invalid-chars \
             "
+FAKEROOT_QA = "host-user-contaminated"
+FAKEROOT_QA[doc] = "QA tests which need to run under fakeroot. If any \
+enabled tests are listed here, the do_package_qa task will run under fakeroot."
 
 ALL_QA = "${WARN_QA} ${ERROR_QA}"
 
@@ -51,6 +57,14 @@ def package_qa_get_machine_dict():
     return {
             "darwin9" : { 
                         "arm" :       (40,     0,    0,          True,          32),
+                      },
+            "eabi" : {
+                        "arm" :       (40,     0,    0,          True,          32),
+                      },
+            "elf" : {
+                        "i586" :      (3,      0,    0,          True,          32),
+                        "x86_64":     (62,     0,    0,          True,          64),
+                        "epiphany":   (4643,   0,    0,          True,          32),
                       },
             "linux" : { 
                         "aarch64" :   (183,    0,    0,          True,          64),
@@ -72,10 +86,12 @@ def package_qa_get_machine_dict():
                         "mipsel":     ( 8,     0,    0,          True,          32),
                         "mips64":     ( 8,     0,    0,          False,         64),
                         "mips64el":   ( 8,     0,    0,          True,          64),
+                        "nios2":      (113,    0,    0,          True,          32),
                         "s390":       (22,     0,    0,          False,         32),
                         "sh4":        (42,     0,    0,          True,          32),
                         "sparc":      ( 2,     0,    0,          False,         32),
                         "microblaze":  (189,   0,    0,          False,         32),
+                        "microblazeeb":(189,   0,    0,          False,         32),
                         "microblazeel":(189,   0,    0,          True,          32),
                       },
             "linux-uclibc" : { 
@@ -96,6 +112,8 @@ def package_qa_get_machine_dict():
 
                       },
             "linux-musl" : { 
+                        "aarch64" :   (183,    0,    0,            True,          64),
+                        "aarch64_be" :(183,    0,    0,            False,         64),
                         "arm" :       (  40,    97,    0,          True,          32),
                         "armeb":      (  40,    97,    0,          False,         32),
                         "powerpc":    (  20,     0,    0,          False,         32),
@@ -149,7 +167,7 @@ def package_qa_get_machine_dict():
 
 def package_qa_clean_path(path,d):
     """ Remove the common prefix from the path. In this case it is the TMPDIR"""
-    return path.replace(d.getVar('TMPDIR',True),"")
+    return path.replace(d.getVar("TMPDIR", True) + "/", "")
 
 def package_qa_write_error(type, error, d):
     logfile = d.getVar('QA_LOGFILE', True)
@@ -247,7 +265,7 @@ def package_qa_check_dev(path, name, d, elf, messages):
     """
 
     if not name.endswith("-dev") and not name.endswith("-dbg") and not name.endswith("-ptest") and not name.startswith("nativesdk-") and path.endswith(".so") and os.path.islink(path):
-        messages["dev-so"] = "non -dev/-dbg/-nativesdk package contains symlink .so: %s path '%s'" % \
+        messages["dev-so"] = "non -dev/-dbg/nativesdk- package contains symlink .so: %s path '%s'" % \
                  (name, package_qa_clean_path(path,d))
 
 QAPATHTEST[staticdev] = "package_qa_check_staticdev"
@@ -288,6 +306,9 @@ def package_qa_check_libdir(d):
             for package in dirs:
                 if 'libdir' in (d.getVar('INSANE_SKIP_' + package, True) or "").split():
                     bb.note("Package %s skipping libdir QA test" % (package))
+                    skippackages.append(package)
+                elif d.getVar('PACKAGE_DEBUG_SPLIT_STYLE', True) == 'debug-file-directory' and package.endswith("-dbg"):
+                    bb.note("Package %s skipping libdir QA test for PACKAGE_DEBUG_SPLIT_STYLE equals debug-file-directory" % (package))
                     skippackages.append(package)
             for package in skippackages:
                 dirs.remove(package)
@@ -444,6 +465,11 @@ def package_qa_check_arch(path,name,d, elf, messages):
     target_arch = d.getVar('TARGET_ARCH', True)
     provides = d.getVar('PROVIDES', True)
     bpn = d.getVar('BPN', True)
+
+    if target_arch == "allarch":
+        pn = d.getVar('PN', True)
+        messages["arch"] = pn + ": Recipe inherits the allarch class, but has packaged architecture-specific binaries"
+        return
 
     # FIXME: Cross package confuse this check, so just skip them
     for s in ['cross', 'nativesdk', 'cross-canadian']:
@@ -604,7 +630,6 @@ def package_qa_check_symlink_to_sysroot(path, name, d, elf, messages):
             if target.startswith(tmpdir):
                 trimmed = path.replace(os.path.join (d.getVar("PKGDEST", True), name), "")
                 messages["symlink-to-sysroot"] = "Symlink %s in %s points to TMPDIR" % (trimmed, name)
-
 def package_qa_check_license(workdir, d):
     """
     Check for changes in the license files 
@@ -771,31 +796,99 @@ def package_qa_check_rdepends(pkg, pkgdest, skip, taskdeps, packages, d):
         rdepends = bb.utils.explode_deps(localdata.getVar('RDEPENDS', True) or "")
 
         # Now do the sanity check!!!
-        for rdepend in rdepends:
-            if "-dbg" in rdepend and "debug-deps" not in skip:
-                error_msg = "%s rdepends on %s" % (pkg,rdepend)
-                sane = package_qa_handle_error("debug-deps", error_msg, d)
-            if (not "-dev" in pkg and not "-staticdev" in pkg) and rdepend.endswith("-dev") and "dev-deps" not in skip:
-                error_msg = "%s rdepends on %s" % (pkg, rdepend)
-                sane = package_qa_handle_error("dev-deps", error_msg, d)
-            if rdepend not in packages:
-                rdep_data = oe.packagedata.read_subpkgdata(rdepend, d)
-                if rdep_data and 'PN' in rdep_data and rdep_data['PN'] in taskdeps:
-                    continue
-                if not rdep_data or not 'PN' in rdep_data:
-                    pkgdata_dir = d.getVar("PKGDATA_DIR", True)
-                    try:
-                        possibles = os.listdir("%s/runtime-rprovides/%s/" % (pkgdata_dir, rdepend))
-                    except OSError:
-                        possibles = []
-                    for p in possibles:
-                        rdep_data = oe.packagedata.read_subpkgdata(p, d)
-                        if rdep_data and 'PN' in rdep_data and rdep_data['PN'] in taskdeps:
-                            break
-                if rdep_data and 'PN' in rdep_data and rdep_data['PN'] in taskdeps:
-                    continue
-                error_msg = "%s rdepends on %s, but it isn't a build dependency?" % (pkg, rdepend)
-                sane = package_qa_handle_error("build-deps", error_msg, d)
+        if "build-deps" not in skip:
+            for rdepend in rdepends:
+                if "-dbg" in rdepend and "debug-deps" not in skip:
+                    error_msg = "%s rdepends on %s" % (pkg,rdepend)
+                    sane = package_qa_handle_error("debug-deps", error_msg, d)
+                if (not "-dev" in pkg and not "-staticdev" in pkg) and rdepend.endswith("-dev") and "dev-deps" not in skip:
+                    error_msg = "%s rdepends on %s" % (pkg, rdepend)
+                    sane = package_qa_handle_error("dev-deps", error_msg, d)
+                if rdepend not in packages:
+                    rdep_data = oe.packagedata.read_subpkgdata(rdepend, d)
+                    if rdep_data and 'PN' in rdep_data and rdep_data['PN'] in taskdeps:
+                        continue
+                    if not rdep_data or not 'PN' in rdep_data:
+                        pkgdata_dir = d.getVar("PKGDATA_DIR", True)
+                        try:
+                            possibles = os.listdir("%s/runtime-rprovides/%s/" % (pkgdata_dir, rdepend))
+                        except OSError:
+                            possibles = []
+                        for p in possibles:
+                            rdep_data = oe.packagedata.read_subpkgdata(p, d)
+                            if rdep_data and 'PN' in rdep_data and rdep_data['PN'] in taskdeps:
+                                break
+                    if rdep_data and 'PN' in rdep_data and rdep_data['PN'] in taskdeps:
+                        continue
+                    error_msg = "%s rdepends on %s, but it isn't a build dependency?" % (pkg, rdepend)
+                    sane = package_qa_handle_error("build-deps", error_msg, d)
+
+        if "file-rdeps" not in skip:
+            ignored_file_rdeps = set(['/bin/sh', '/usr/bin/env', 'rtld(GNU_HASH)'])
+            if bb.data.inherits_class('nativesdk', d):
+                ignored_file_rdeps |= set(['/bin/bash', '/usr/bin/perl'])
+            # For Saving the FILERDEPENDS
+            filerdepends = {}
+            rdep_data = oe.packagedata.read_subpkgdata(pkg, d)
+            for key in rdep_data:
+                if key.startswith("FILERDEPENDS_"):
+                    for subkey in rdep_data[key].split():
+                        if subkey not in ignored_file_rdeps:
+                            # We already know it starts with FILERDEPENDS_
+                            filerdepends[subkey] = key[13:]
+
+            if filerdepends:
+                next = rdepends
+                done = rdepends[:]
+                # Find all the rdepends on the dependency chain
+                while next:
+                    new = []
+                    for rdep in next:
+                        rdep_data = oe.packagedata.read_subpkgdata(rdep, d)
+                        sub_rdeps = rdep_data.get("RDEPENDS_" + rdep)
+                        if not sub_rdeps:
+                            continue
+                        for sub_rdep in sub_rdeps.split():
+                            if sub_rdep in done:
+                                continue
+                            if not sub_rdep.startswith('(') and \
+                                    oe.packagedata.has_subpkgdata(sub_rdep, d):
+                                # It's a new rdep
+                                done.append(sub_rdep)
+                                new.append(sub_rdep)
+                    next = new
+
+                # Add the rprovides of itself
+                if pkg not in done:
+                    done.insert(0, pkg)
+
+                # The python is not a package, but python-core provides it, so
+                # skip checking /usr/bin/python if python is in the rdeps, in
+                # case there is a RDEPENDS_pkg = "python" in the recipe.
+                for py in [ d.getVar('MLPREFIX', True) + "python", "python" ]:
+                    if py in done:
+                        filerdepends.pop("/usr/bin/python",None)
+                        done.remove(py)
+                for rdep in done:
+                    # For Saving the FILERPROVIDES, RPROVIDES and FILES_INFO
+                    rdep_data = oe.packagedata.read_subpkgdata(rdep, d)
+                    for key in rdep_data:
+                        if key.startswith("FILERPROVIDES_") or key.startswith("RPROVIDES_"):
+                            for subkey in rdep_data[key].split():
+                                filerdepends.pop(subkey,None)
+                        # Add the files list to the rprovides
+                        if key == "FILES_INFO":
+                            # Use eval() to make it as a dict
+                            for subkey in eval(rdep_data[key]):
+                                filerdepends.pop(subkey,None)
+                    if not filerdepends:
+                        # Break if all the file rdepends are met
+                        break
+            if filerdepends:
+                for key in filerdepends:
+                    error_msg = "%s contained in package %s requires %s, but no providers found in its RDEPENDS" % \
+                            (filerdepends[key],pkg, key)
+                sane = package_qa_handle_error("file-rdeps", error_msg, d)
 
     return sane
 
@@ -835,6 +928,86 @@ def package_qa_check_deps(pkg, pkgdest, skip, d):
 
     return sane
 
+QAPATHTEST[expanded-d] = "package_qa_check_expanded_d"
+def package_qa_check_expanded_d(path,name,d,elf,messages):
+    """
+    Check for the expanded D (${D}) value in pkg_* and FILES
+    variables, warn the user to use it correctly.
+    """
+
+    sane = True
+    expanded_d = d.getVar('D',True)
+
+    # Get packages for current recipe and iterate
+    packages = d.getVar('PACKAGES', True).split(" ")
+    for pak in packages:
+    # Go through all variables and check if expanded D is found, warn the user accordingly
+        for var in 'FILES','pkg_preinst', 'pkg_postinst', 'pkg_prerm', 'pkg_postrm':
+            bbvar = d.getVar(var + "_" + pak, False)
+            if bbvar:
+                # Bitbake expands ${D} within bbvar during the previous step, so we check for its expanded value
+                if expanded_d in bbvar:
+                    if var == 'FILES':
+                        messages["expanded-d"] = "FILES in %s recipe should not contain the ${D} variable as it references the local build directory not the target filesystem, best solution is to remove the ${D} reference" % pak
+                        sane = False
+                    else:
+                        messages["expanded-d"] = "%s in %s recipe contains ${D}, it should be replaced by $D instead" % (var, pak)
+                        sane = False
+    return sane
+
+def package_qa_check_encoding(keys, encode, d):
+    def check_encoding(key,enc):
+        sane = True
+        value = d.getVar(key, True)
+        if value:
+            try:
+                s = unicode(value, enc)
+            except UnicodeDecodeError as e:
+                error_msg = "%s has non %s characters" % (key,enc)
+                sane = False
+                package_qa_handle_error("invalid-chars", error_msg, d)
+        return sane
+
+    for key in keys:
+        sane = check_encoding(key, encode)
+        if not sane:
+            break
+
+HOST_USER_UID := "${@os.getuid()}"
+HOST_USER_GID := "${@os.getgid()}"
+
+QAPATHTEST[host-user-contaminated] = "package_qa_check_host_user"
+def package_qa_check_host_user(path, name, d, elf, messages):
+    """Check for paths outside of /home which are owned by the user running bitbake."""
+
+    if not os.path.lexists(path):
+        return
+
+    dest = d.getVar('PKGDEST', True)
+    pn = d.getVar('PN', True)
+    home = os.path.join(dest, 'home')
+    if path == home or path.startswith(home + os.sep):
+        return
+
+    try:
+        stat = os.lstat(path)
+    except OSError as exc:
+        import errno
+        if exc.errno != errno.ENOENT:
+            raise
+    else:
+        rootfs_path = path[len(dest):]
+        check_uid = int(d.getVar('HOST_USER_UID', True))
+        if stat.st_uid == check_uid:
+            messages["host-user-contaminated"] = "%s: %s is owned by uid %d, which is the same as the user running bitbake. This may be due to host contamination" % (pn, rootfs_path, check_uid)
+            return False
+
+        check_gid = int(d.getVar('HOST_USER_GID', True))
+        if stat.st_gid == check_gid:
+            messages["host-user-contaminated"] = "%s: %s is owned by gid %d, which is the same as the user running bitbake. This may be due to host contamination" % (pn, rootfs_path, check_gid)
+            return False
+    return True
+
 # The PACKAGE FUNC to scan each package
 python do_package_qa () {
     import subprocess
@@ -843,6 +1016,9 @@ python do_package_qa () {
     bb.note("DO PACKAGE QA")
 
     bb.build.exec_func("read_subpackage_metadata", d)
+
+    # Check non UTF-8 characters on recipe's metadata
+    package_qa_check_encoding(['DESCRIPTION', 'SUMMARY', 'LICENSE', 'SECTION'], 'utf-8', d)
 
     logdir = d.getVar('T', True)
     pkg = d.getVar('PN', True)
@@ -869,12 +1045,12 @@ python do_package_qa () {
 
     # Scan the packages...
     pkgdest = d.getVar('PKGDEST', True)
-    packages = d.getVar('PACKAGES', True)
+    packages = set((d.getVar('PACKAGES', True) or '').split())
 
     cpath = oe.cachedpath.CachedPath()
     global pkgfiles
     pkgfiles = {}
-    for pkg in (packages or "").split():
+    for pkg in packages:
         pkgfiles[pkg] = []
         for walkroot, dirs, files in cpath.walk(pkgdest + "/" + pkg):
             for file in files:
@@ -898,7 +1074,7 @@ python do_package_qa () {
     walk_sane = True
     rdepends_sane = True
     deps_sane = True
-    for package in packages.split():
+    for package in packages:
         skip = (d.getVar('INSANE_SKIP_' + package, True) or "").split()
         if skip:
             bb.note("Package %s skipping QA tests: %s" % (package, str(skip)))
@@ -919,7 +1095,7 @@ python do_package_qa () {
         # Check package name
         if not pkgname_pattern.match(package):
             package_qa_handle_error("pkgname",
-                    "%s doesn't match the [a-z0-9.+-]+ regex\n" % package, d)
+                    "%s doesn't match the [a-z0-9.+-]+ regex" % package, d)
 
         path = "%s/%s" % (pkgdest, package)
         if not package_qa_walk(path, warnchecks, errorchecks, skip, package, d):
@@ -939,6 +1115,7 @@ python do_package_qa () {
     bb.note("DONE with PACKAGE QA")
 }
 
+do_package_qa[vardepsexclude] = "BB_TASKDEPDATA"
 do_package_qa[rdeptask] = "do_packagedata"
 addtask do_package_qa after do_packagedata do_package before do_build
 
@@ -973,7 +1150,7 @@ python do_qa_configure() {
         if "config.log" in files:
             if subprocess.call(statement, shell=True) == 0:
                 bb.fatal("""This autoconf log indicates errors, it looked at host include and/or library paths while determining system capabilities.
-Rerun configure task after fixing this. The path was '%s'""" % root)
+Rerun configure task after fixing this.""")
 
         if "configure.ac" in files:
             configs.append(os.path.join(root,"configure.ac"))
@@ -1028,7 +1205,26 @@ Missing inherit gettext?""" % (gt, config))
                 package_qa_handle_error("unknown-configure-option", error_msg, d)
         except subprocess.CalledProcessError:
             pass
+
+    # Check invalid PACKAGECONFIG
+    pkgconfig = (d.getVar("PACKAGECONFIG", True) or "").split()
+    if pkgconfig:
+        pkgconfigflags = d.getVarFlags("PACKAGECONFIG") or {}
+        for pconfig in pkgconfig:
+            if pconfig not in pkgconfigflags:
+                pn = d.getVar('PN', True)
+                error_msg = "%s: invalid PACKAGECONFIG: %s" % (pn, pconfig)
+                package_qa_handle_error("invalid-packageconfig", error_msg, d)
 }
+
+python do_qa_unpack() {
+    bb.note("Checking has ${S} been created")
+
+    s_dir = d.getVar('S', True)
+    if not os.path.exists(s_dir):
+        bb.warn('%s: the directory %s (%s) pointed to by the S variable doesn\'t exist - please set S within the recipe to point to where the source has been unpacked to' % (d.getVar('PN', True), d.getVar('S', False), s_dir))
+}
+
 # The Staging Func, to check all staging
 #addtask qa_staging after do_populate_sysroot before do_build
 do_populate_sysroot[postfuncs] += "do_qa_staging "
@@ -1038,10 +1234,13 @@ do_populate_sysroot[postfuncs] += "do_qa_staging "
 #addtask qa_configure after do_configure before do_compile
 do_configure[postfuncs] += "do_qa_configure "
 
+# Check does S exist.
+do_unpack[postfuncs] += "do_qa_unpack"
+
 python () {
     tests = d.getVar('ALL_QA', True).split()
     if "desktop" in tests:
-        d.appendVar("PACKAGE_DEPENDS", "desktop-file-utils-native")
+        d.appendVar("PACKAGE_DEPENDS", " desktop-file-utils-native")
 
     ###########################################################################
     # Check various variables
@@ -1074,8 +1273,13 @@ python () {
         for dep in (d.getVar('QADEPENDS', True) or "").split():
             d.appendVarFlag('do_package_qa', 'depends', " %s:do_populate_sysroot" % dep)
         for var in 'RDEPENDS', 'RRECOMMENDS', 'RSUGGESTS', 'RCONFLICTS', 'RPROVIDES', 'RREPLACES', 'FILES', 'pkg_preinst', 'pkg_postinst', 'pkg_prerm', 'pkg_postrm', 'ALLOW_EMPTY':
-            if d.getVar(var):
+            if d.getVar(var, False):
                 issues.append(var)
+
+        fakeroot_tests = d.getVar('FAKEROOT_QA', True).split()
+        if set(tests) & set(fakeroot_tests):
+            d.setVarFlag('do_package_qa', 'fakeroot', '1')
+            d.appendVarFlag('do_package_qa', 'depends', ' virtual/fakeroot-native:do_populate_sysroot')
     else:
         d.setVarFlag('do_package_qa', 'rdeptask', '')
     for i in issues:

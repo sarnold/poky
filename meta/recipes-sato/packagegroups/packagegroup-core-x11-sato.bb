@@ -6,9 +6,11 @@ SUMMARY = "Sato desktop"
 LICENSE = "MIT"
 PR = "r33"
 
-inherit packagegroup
-
 PACKAGE_ARCH = "${MACHINE_ARCH}"
+
+inherit packagegroup distro_features_check
+# rdepends on x11vnc
+REQUIRED_DISTRO_FEATURES = "x11"
 
 PACKAGES = "${PN} ${PN}-base ${PN}-apps ${PN}-games"
 
@@ -37,6 +39,7 @@ RDEPENDS_${PN}-base = "\
     libsdl \
     ${NETWORK_MANAGER} \
     udev-extraconf \
+    ${@bb.utils.contains('DISTRO_FEATURES', 'pulseaudio', 'pulseaudio-server pulseaudio-client-conf-sato', '', d)} \
     "
 
 # pcmanfm doesn't work on mips
@@ -44,12 +47,12 @@ FILEMANAGER ?= "pcmanfm"
 FILEMANAGER_mips ?= ""
 
 WEB ?= ""
-#WEB = "midori"
+#WEB = "epiphany"
 
 SUMMARY_${PN}-apps = "Sato desktop - applications"
 RDEPENDS_${PN}-apps = "\
     leafpad \
-    gaku \
+    gst-player-bin \
     x11vnc \
     matchbox-terminal \
     sato-screenshot \

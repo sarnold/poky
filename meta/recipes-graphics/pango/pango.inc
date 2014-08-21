@@ -21,17 +21,7 @@ PACKAGECONFIG[ptest] = "--enable-installed-tests,--disable-installed-tests,glib-
 BBCLASSEXTEND = "native"
 DEPENDS_class-native = "glib-2.0-native cairo-native harfbuzz-native"
 
-PACKAGES_DYNAMIC += "^pango-module-.*"
-
-RRECOMMENDS_${PN} = "pango-module-basic-fc"
-
 inherit gnomebase gtk-doc qemu ptest
-
-# Create a pango-modules package
-ALLOW_EMPTY_${BPN}-modules = "1"
-PACKAGES += "${BPN}-modules"
-RRECOMMENDS_${BPN}-modules =  "${@" ".join([p for p in d.getVar('PACKAGES', True).split() if p.find("pango-module") != -1])}"
-
 
 EXTRA_AUTORECONF = ""
 
@@ -39,54 +29,20 @@ EXTRA_AUTORECONF = ""
 FULL_OPTIMIZATION_arm = "-O2"
 
 EXTRA_OECONF = "--disable-introspection \
-		--enable-explicit-deps=no \
 	        --disable-debug \
-	        --with-mlprefix=${MLPREFIX}"
+	        "
 
 LEAD_SONAME = "libpango-1.0*"
 LIBV = "1.8.0"
 
-postinst_prologue() {
-if ! [ -e $D${sysconfdir}/pango ] ; then
-	mkdir -p $D${sysconfdir}/pango
-fi
-
-if [ "x$D" != "x" ]; then
-	${@qemu_run_binary(d, '$D','${bindir}/${MLPREFIX}pango-querymodules')} \
-		$D${libdir}/pango/${LIBV}/modules/*.so \
-		> $D${sysconfdir}/pango/${MLPREFIX}pango.modules 2>/dev/null
-
-	[ $? -ne 0 ] && exit 1
-
-	sed -i -e "s:$D::" $D${sysconfdir}/pango/${MLPREFIX}pango.modules
-
-	exit 0
-fi
-}
-
 # This binary needs to be compiled for the host architecture.  This isn't pretty!
 do_compile_prepend () {
 	if ${@base_contains('DISTRO_FEATURES', 'ptest', 'true', 'false', d)}; then
-		make CC="${BUILD_CC}" AM_CPPFLAGS="$(pkg-config-native --cflags glib-2.0)" gen_all_unicode_LDADD="$(pkg-config-native --libs glib-2.0)" -C ${B}/tests gen-all-unicode
+		make CC="${BUILD_CC}" CFLAGS="" AM_CPPFLAGS="$(pkg-config-native --cflags glib-2.0)" gen_all_unicode_LDADD="$(pkg-config-native --libs glib-2.0)" -C ${B}/tests gen-all-unicode
 	fi
 }
 
-do_install_append () {
-	if [ "${MLPREFIX}" != "" ]; then
-		mv ${D}/${bindir}/pango-querymodules ${D}/${bindir}/${MLPREFIX}pango-querymodules 
-	fi
-}
-
-
-python populate_packages_prepend () {
-    prologue = d.getVar("postinst_prologue", True)
-
-    modules_root = d.expand('${libdir}/pango/${LIBV}/modules')
-
-    do_split_packages(d, modules_root, '^pango-(.*)\.so$', 'pango-module-%s', 'Pango module %s', prologue + '${bindir}/${MLPREFIX}pango-querymodules > /etc/pango/${MLPREFIX}pango.modules')
-}
-
-FILES_${PN} = "${sysconfdir}/pango/* ${bindir}/* ${libdir}/libpango*${SOLIBS}"
+FILES_${PN} = "${bindir}/* ${libdir}/libpango*${SOLIBS}"
 FILES_${PN}-dbg += "${libdir}/pango/${LIBV}/modules/.debug"
 FILES_${PN}-dev += "${libdir}/pango/${LIBV}/modules/*.la"
 
@@ -95,3 +51,6 @@ FILES_${PN}-ptest += "${libexecdir}/installed-tests/* \
 FILES_${PN}-dbg += "${libexecdir}/installed-tests/.debug"
 
 RDEPENDS_${PN}-ptest += "gnome-desktop-testing liberation-fonts"
+
+RPROVIDES_${PN} += "pango-modules pango-module-indic-lang \
+                    pango-module-basic-fc pango-module-arabic-lang"

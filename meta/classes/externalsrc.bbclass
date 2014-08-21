@@ -35,7 +35,21 @@ python () {
             d.setVar('B', externalsrcbuild)
         else:
             d.setVar('B', '${WORKDIR}/${BPN}-${PV}/')
-        d.setVar('SRC_URI', '')
+
+        local_srcuri = []
+        fetch = bb.fetch2.Fetch((d.getVar('SRC_URI', True) or '').split(), d)
+        for url in fetch.urls:
+            url_data = fetch.ud[url]
+            parm = url_data.parm
+            if (url_data.type == 'file' or
+                    'type' in parm and parm['type'] == 'kmeta'):
+                local_srcuri.append(url)
+
+        d.setVar('SRC_URI', ' '.join(local_srcuri))
+
+        if '{SRCPV}' in d.getVar('PV', False):
+            # Dummy value because the default function can't be called with blank SRC_URI
+            d.setVar('SRCPV', '999')
 
         tasks = filter(lambda k: d.getVarFlag(k, "task"), d.keys())
 
@@ -45,9 +59,35 @@ python () {
                 bb.build.deltask(task, d)
             else:
                 # Since configure will likely touch ${S}, ensure only we lock so one task has access at a time
-                d.appendVarFlag(task, "lockfiles", "${S}/singletask.lock")
+                d.appendVarFlag(task, "lockfiles", " ${S}/singletask.lock")
+
+            # We do not want our source to be wiped out, ever (kernel.bbclass does this for do_clean)
+            cleandirs = (d.getVarFlag(task, 'cleandirs', False) or '').split()
+            setvalue = False
+            for cleandir in cleandirs[:]:
+                if d.expand(cleandir) == externalsrc:
+                    cleandirs.remove(cleandir)
+                    setvalue = True
+            if setvalue:
+                d.setVarFlag(task, 'cleandirs', ' '.join(cleandirs))
+
+        fetch_tasks = ['do_fetch', 'do_unpack']
+        # If we deltask do_patch, there's no dependency to ensure do_unpack gets run, so add one
+        # Note that we cannot use d.appendVarFlag() here because deps is expected to be a list object, not a string
+        d.setVarFlag('do_configure', 'deps', (d.getVarFlag('do_configure', 'deps', False) or []) + ['do_unpack'])
 
         for task in d.getVar("SRCTREECOVEREDTASKS", True).split():
+            if local_srcuri and task in fetch_tasks:
+                continue
             bb.build.deltask(task, d)
+
+        d.prependVarFlag('do_compile', 'prefuncs', "externalsrc_compile_prefunc ")
+
+        # Ensure compilation happens every time
+        d.setVarFlag('do_compile', 'nostamp', '1')
 }
 
+python externalsrc_compile_prefunc() {
+    # Make it obvious that this is happening, since forgetting about it could lead to much confusion
+    bb.plain('NOTE: %s: compiling from external source tree %s' % (d.getVar('PN', True), d.getVar('EXTERNALSRC', True)))
+}

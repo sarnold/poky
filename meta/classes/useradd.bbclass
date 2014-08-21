@@ -4,7 +4,7 @@ inherit useradd_base
 # target sysroot, and shadow -native and -sysroot provide the utilities
 # and support files needed to add and modify user and group accounts
 DEPENDS_append = "${USERADDDEPENDS}"
-USERADDDEPENDS = " base-files base-passwd shadow-native shadow-sysroot shadow"
+USERADDDEPENDS = " base-files shadow-native shadow-sysroot shadow"
 USERADDDEPENDS_class-cross = ""
 USERADDDEPENDS_class-native = ""
 USERADDDEPENDS_class-nativesdk = ""
@@ -24,6 +24,18 @@ if test "x$D" != "x"; then
 	# Installing into a sysroot
 	SYSROOT="$D"
 	OPT="--root $D"
+
+	# Make sure login.defs is there, this is to make debian package backend work
+	# correctly while doing rootfs.
+	# The problem here is that if /etc/login.defs is treated as a config file for
+	# shadow package, then while performing preinsts for packages that depend on
+	# shadow, there might only be /etc/login.def.dpkg-new there in root filesystem.
+	if [ ! -e $D${sysconfdir}/login.defs -a -e $D${sysconfdir}/login.defs.dpkg-new ]; then
+	    cp $D${sysconfdir}/login.defs.dpkg-new $D${sysconfdir}/login.defs
+	fi
+
+	# user/group lookups should match useradd/groupadd --root
+	export PSEUDO_PASSWD="$SYSROOT:${STAGING_DIR_NATIVE}"
 fi
 
 # If we're not doing a special SSTATE/SYSROOT install
@@ -126,7 +138,7 @@ SYSROOTPOSTFUNC_class-cross = ""
 SYSROOTPOSTFUNC_class-native = ""
 SYSROOTPOSTFUNC_class-nativesdk = ""
 
-USERADDSETSCENEDEPS = "${MLPREFIX}base-passwd:do_populate_sysroot_setscene shadow-native:do_populate_sysroot_setscene ${MLPREFIX}shadow-sysroot:do_populate_sysroot_setscene"
+USERADDSETSCENEDEPS = "${MLPREFIX}base-passwd:do_populate_sysroot_setscene pseudo-native:do_populate_sysroot_setscene shadow-native:do_populate_sysroot_setscene ${MLPREFIX}shadow-sysroot:do_populate_sysroot_setscene"
 USERADDSETSCENEDEPS_class-cross = ""
 USERADDSETSCENEDEPS_class-native = ""
 USERADDSETSCENEDEPS_class-nativesdk = ""
@@ -138,11 +150,11 @@ def update_useradd_after_parse(d):
     useradd_packages = d.getVar('USERADD_PACKAGES', True)
 
     if not useradd_packages:
-        raise bb.build.FuncFailed("%s inherits useradd but doesn't set USERADD_PACKAGES" % d.getVar('FILE'))
+        raise bb.build.FuncFailed("%s inherits useradd but doesn't set USERADD_PACKAGES" % d.getVar('FILE', False))
 
     for pkg in useradd_packages.split():
         if not d.getVar('USERADD_PARAM_%s' % pkg, True) and not d.getVar('GROUPADD_PARAM_%s' % pkg, True) and not d.getVar('GROUPMEMS_PARAM_%s' % pkg, True):
-            bb.fatal("%s inherits useradd but doesn't set USERADD_PARAM, GROUPADD_PARAM or GROUPMEMS_PARAM for package %s" % (d.getVar('FILE'), pkg))
+            bb.fatal("%s inherits useradd but doesn't set USERADD_PARAM, GROUPADD_PARAM or GROUPMEMS_PARAM for package %s" % (d.getVar('FILE', False), pkg))
 
 python __anonymous() {
     if not bb.data.inherits_class('nativesdk', d) \
@@ -179,9 +191,9 @@ fakeroot python populate_packages_prepend () {
         preinst = d.getVar('pkg_preinst_%s' % pkg, True) or d.getVar('pkg_preinst', True)
         if not preinst:
             preinst = '#!/bin/sh\n'
-        preinst += 'bbnote () {\n%s}\n' % d.getVar('bbnote', True)
-        preinst += 'bbwarn () {\n%s}\n' % d.getVar('bbwarn', True)
-        preinst += 'bbfatal () {\n%s}\n' % d.getVar('bbfatal', True)
+        preinst += 'bbnote () {\n\techo "NOTE: $*"\n}\n'
+        preinst += 'bbwarn () {\n\techo "WARNING: $*"\n}\n'
+        preinst += 'bbfatal () {\n\techo "ERROR: $*"\n\texit 1\n}\n'
         preinst += 'perform_groupadd () {\n%s}\n' % d.getVar('perform_groupadd', True)
         preinst += 'perform_useradd () {\n%s}\n' % d.getVar('perform_useradd', True)
         preinst += 'perform_groupmems () {\n%s}\n' % d.getVar('perform_groupmems', True)
@@ -190,10 +202,10 @@ fakeroot python populate_packages_prepend () {
 
         # RDEPENDS setup
         rdepends = d.getVar("RDEPENDS_%s" % pkg, True) or ""
-        rdepends += ' ' + d.getVar('MLPREFIX') + 'base-passwd'
-        rdepends += ' ' + d.getVar('MLPREFIX') + 'shadow'
+        rdepends += ' ' + d.getVar('MLPREFIX', False) + 'base-passwd'
+        rdepends += ' ' + d.getVar('MLPREFIX', False) + 'shadow'
         # base-files is where the default /etc/skel is packaged
-        rdepends += ' ' + d.getVar('MLPREFIX') + 'base-files'
+        rdepends += ' ' + d.getVar('MLPREFIX', False) + 'base-files'
         d.setVar("RDEPENDS_%s" % pkg, rdepends)
 
     # Add the user/group preinstall scripts and RDEPENDS requirements

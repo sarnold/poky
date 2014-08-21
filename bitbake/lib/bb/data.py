@@ -6,7 +6,7 @@ BitBake 'Data' implementations
 Functions for interacting with the data structure used by the
 BitBake build tools.
 
-The expandData and update_data are the most expensive
+The expandKeys and update_data are the most expensive
 operations. At night the cookie monster came by and
 suggested 'give me cookies on setting the variables and
 things will work out'. Taking this suggestion into account
@@ -15,7 +15,7 @@ Analyse von Algorithmen' lecture and the cookie
 monster seems to be right. We will track setVar more carefully
 to have faster update_data and expandKeys operations.
 
-This is a treade-off between speed and memory again but
+This is a trade-off between speed and memory again but
 the speed is more critical here.
 """
 
@@ -35,7 +35,7 @@ the speed is more critical here.
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
-#Based on functions from the base bb module, Copyright 2003 Holger Schurig
+# Based on functions from the base bb module, Copyright 2003 Holger Schurig
 
 import sys, os, re
 if sys.argv[0][-5:] == "pydoc":
@@ -84,7 +84,7 @@ def setVar(var, value, d):
     d.setVar(var, value)
 
 
-def getVar(var, d, exp = 0):
+def getVar(var, d, exp = False):
     """Gets the value of a variable"""
     return d.getVar(var, exp)
 
@@ -159,13 +159,12 @@ def expandKeys(alterdata, readdata = None):
 
     # These two for loops are split for performance to maximise the
     # usefulness of the expand cache
-
-    for key in todolist:
+    for key in sorted(todolist):
         ekey = todolist[key]
-        newval = alterdata.getVar(ekey, 0)
-        if newval:
-            val = alterdata.getVar(key, 0)
-            if val is not None and newval is not None:
+        newval = alterdata.getVar(ekey, False)
+        if newval is not None:
+            val = alterdata.getVar(key, False)
+            if val is not None:
                 bb.warn("Variable key %s (%s) replaces original key %s (%s)." % (key, val, ekey, newval))
         alterdata.renameVar(key, ekey)
 
@@ -175,7 +174,7 @@ def inheritFromOS(d, savedenv, permitted):
     for s in savedenv.keys():
         if s in permitted:
             try:
-                d.setVar(s, getVar(s, savedenv, True), op = 'from env')
+                d.setVar(s, savedenv.getVar(s, True), op = 'from env')
                 if s in exportlist:
                     d.setVarFlag(s, "export", True, op = 'auto env export')
             except TypeError:
@@ -183,41 +182,48 @@ def inheritFromOS(d, savedenv, permitted):
 
 def emit_var(var, o=sys.__stdout__, d = init(), all=False):
     """Emit a variable to be sourced by a shell."""
-    if getVarFlag(var, "python", d):
-        return 0
+    if d.getVarFlag(var, "python"):
+        return False
 
-    export = getVarFlag(var, "export", d)
-    unexport = getVarFlag(var, "unexport", d)
-    func = getVarFlag(var, "func", d)
+    export = d.getVarFlag(var, "export")
+    unexport = d.getVarFlag(var, "unexport")
+    func = d.getVarFlag(var, "func")
     if not all and not export and not unexport and not func:
-        return 0
+        return False
 
     try:
         if all:
-            oval = getVar(var, d, 0)
-        val = getVar(var, d, 1)
+            oval = d.getVar(var, False)
+        val = d.getVar(var, True)
     except (KeyboardInterrupt, bb.build.FuncFailed):
         raise
     except Exception as exc:
         o.write('# expansion of %s threw %s: %s\n' % (var, exc.__class__.__name__, str(exc)))
-        return 0
+        return False
 
     if all:
-        d.varhistory.emit(var, oval, val, o)
+        d.varhistory.emit(var, oval, val, o, d)
 
     if (var.find("-") != -1 or var.find(".") != -1 or var.find('{') != -1 or var.find('}') != -1 or var.find('+') != -1) and not all:
-        return 0
+        return False
 
-    varExpanded = expand(var, d)
+    varExpanded = d.expand(var)
 
     if unexport:
         o.write('unset %s\n' % varExpanded)
-        return 0
+        return False
 
     if val is None:
-        return 0
+        return False
 
     val = str(val)
+
+    if varExpanded.startswith("BASH_FUNC_"):
+        varExpanded = varExpanded[10:-2]
+        val = val[3:] # Strip off "() "
+        o.write("%s() %s\n" % (varExpanded, val))
+        o.write("export -f %s\n" % (varExpanded))
+        return True
 
     if func:
         # NOTE: should probably check for unbalanced {} within the var
@@ -231,8 +237,9 @@ def emit_var(var, o=sys.__stdout__, d = init(), all=False):
     # to a shell, we need to escape the quotes in the var
     alter = re.sub('"', '\\"', val)
     alter = re.sub('\n', ' \\\n', alter)
+    alter = re.sub('\\$', '\\\\$', alter)
     o.write('%s="%s"\n' % (varExpanded, alter))
-    return 0
+    return False
 
 def emit_env(o=sys.__stdout__, d = init(), all=False):
     """Emits all items in the data store in a format such that it can be sourced by a shell."""
@@ -264,8 +271,9 @@ def emit_func(func, o=sys.__stdout__, d = init()):
 
     keys = (key for key in d.keys() if not key.startswith("__") and not d.getVarFlag(key, "func"))
     for key in keys:
-        emit_var(key, o, d, False) and o.write('\n')
+        emit_var(key, o, d, False)
 
+    o.write('\n')
     emit_var(func, o, d, False) and o.write('\n')
     newdeps = bb.codeparser.ShellParser(func, logger).parse_shell(d.getVar(func, True))
     newdeps |= set((d.getVarFlag(func, "vardeps", True) or "").split())
@@ -278,6 +286,41 @@ def emit_func(func, o=sys.__stdout__, d = init()):
             if d.getVarFlag(dep, "func") and not d.getVarFlag(dep, "python"):
                emit_var(dep, o, d, False) and o.write('\n')
                newdeps |=  bb.codeparser.ShellParser(dep, logger).parse_shell(d.getVar(dep, True))
+               newdeps |= set((d.getVarFlag(dep, "vardeps", True) or "").split())
+        newdeps -= seen
+
+_functionfmt = """
+def {function}(d):
+{body}"""
+
+def emit_func_python(func, o=sys.__stdout__, d = init()):
+    """Emits all items in the data store in a format such that it can be sourced by a shell."""
+
+    def write_func(func, o, call = False):
+        body = d.getVar(func, True)
+        if not body.startswith("def"):
+            body = _functionfmt.format(function=func, body=body)
+
+        o.write(body.strip() + "\n\n")
+        if call:
+            o.write(func + "(d)" + "\n\n")
+
+    write_func(func, o, True)
+    pp = bb.codeparser.PythonParser(func, logger)
+    pp.parse_python(d.getVar(func, True))
+    newdeps = pp.execs
+    newdeps |= set((d.getVarFlag(func, "vardeps", True) or "").split())
+    seen = set()
+    while newdeps:
+        deps = newdeps
+        seen |= deps
+        newdeps = set()
+        for dep in deps:
+            if d.getVarFlag(dep, "func") and d.getVarFlag(dep, "python"):
+               write_func(dep, o)
+               pp = bb.codeparser.PythonParser(dep, logger)
+               pp.parse_python(d.getVar(dep, True))
+               newdeps |= pp.execs
                newdeps |= set((d.getVarFlag(dep, "vardeps", True) or "").split())
         newdeps -= seen
 
@@ -377,7 +420,7 @@ def generate_dependencies(d):
     deps = {}
     values = {}
 
-    tasklist = d.getVar('__BBTASKS') or []
+    tasklist = d.getVar('__BBTASKS', False) or []
     for task in tasklist:
         deps[task], values[task] = build_dependencies(task, keys, shelldeps, varflagsexcl, d)
         newdeps = deps[task]
@@ -395,7 +438,7 @@ def generate_dependencies(d):
     return tasklist, deps, values
 
 def inherits_class(klass, d):
-    val = getVar('__inherit_cache', d) or []
+    val = d.getVar('__inherit_cache', False) or []
     needle = os.path.join('classes', '%s.bbclass' % klass)
     for v in val:
         if v.endswith(needle):

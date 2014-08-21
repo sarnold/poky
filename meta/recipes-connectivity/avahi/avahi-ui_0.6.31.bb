@@ -6,7 +6,8 @@ LIC_FILES_CHKSUM = "file://LICENSE;md5=2d5025d4aa3495befef8f17206a5b0a1 \
 
 require avahi.inc
 
-inherit python-dir pythonnative
+inherit python-dir pythonnative distro_features_check
+ANY_OF_DISTRO_FEATURES = "${GTK2DISTROFEATURES}"
 
 PACKAGECONFIG ??= "python"
 PACKAGECONFIG[python] = "--enable-python,--disable-python,python-native python"
@@ -45,7 +46,11 @@ RDEPENDS_python-avahi = "python-core python-dbus"
 do_install_append () {
 	rm ${D}${sysconfdir} -rf
 	rm ${D}${base_libdir} -rf
-	rm ${D}${base_libdir} -rf
+	rm ${D}${systemd_unitdir} -rf
+	# The ${systemd_unitdir} is /lib/systemd, so we need rmdir /lib,
+	# but not ${base_libdir} here. And the /lib may not exist
+	# whithout systemd.
+	[ ! -d ${D}/lib ] || rmdir ${D}/lib --ignore-fail-on-non-empty
 	rm ${D}${bindir}/avahi-b*
 	rm ${D}${bindir}/avahi-p*
 	rm ${D}${bindir}/avahi-r*
@@ -64,6 +69,5 @@ do_install_append () {
 	rm ${D}${mandir}/man1/a*
 	rm ${D}${mandir}/man5 -rf
 	rm ${D}${mandir}/man8 -rf
-	rmdir ${D}${localstatedir}
 }
 

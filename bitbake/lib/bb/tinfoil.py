@@ -25,30 +25,33 @@ import bb.cache
 import bb.cooker
 import bb.providers
 import bb.utils
-from bb.cooker import state, BBCooker
+from bb.cooker import state, BBCooker, CookerFeatures
 from bb.cookerdata import CookerConfiguration, ConfigParameters
 import bb.fetch2
 
 class Tinfoil:
-    def __init__(self, output=sys.stdout):
+    def __init__(self, output=sys.stdout, tracking=False):
         # Needed to avoid deprecation warnings with python 2.6
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # Set up logging
         self.logger = logging.getLogger('BitBake')
-        console = logging.StreamHandler(output)
-        bb.msg.addDefaultlogFilter(console)
+        self._log_hdlr = logging.StreamHandler(output)
+        bb.msg.addDefaultlogFilter(self._log_hdlr)
         format = bb.msg.BBLogFormatter("%(levelname)s: %(message)s")
         if output.isatty():
             format.enable_color()
-        console.setFormatter(format)
-        self.logger.addHandler(console)
+        self._log_hdlr.setFormatter(format)
+        self.logger.addHandler(self._log_hdlr)
 
         self.config = CookerConfiguration()
         configparams = TinfoilConfigParameters(parse_only=True)
         self.config.setConfigParameters(configparams)
         self.config.setServerRegIdleCallback(self.register_idle_function)
-        self.cooker = BBCooker(self.config)
+        features = []
+        if tracking:
+            features.append(CookerFeatures.BASEDATASTORE_TRACKING)
+        self.cooker = BBCooker(self.config, features)
         self.config_data = self.cooker.data
         bb.providers.logger.setLevel(logging.ERROR)
         self.cooker_data = None
@@ -81,13 +84,19 @@ class Tinfoil:
             else:
                 self.parseRecipes()
 
+    def shutdown(self):
+        self.cooker.shutdown(force=True)
+        self.cooker.post_serve()
+        self.cooker.unlockBitbake()
+        self.logger.removeHandler(self._log_hdlr)
+
 class TinfoilConfigParameters(ConfigParameters):
 
     def __init__(self, **options):
         self.initial_options = options
         super(TinfoilConfigParameters, self).__init__()
 
-    def parseCommandLine(self):
+    def parseCommandLine(self, argv=sys.argv):
         class DummyOptions:
             def __init__(self, initial_options):
                 for key, val in initial_options.items():

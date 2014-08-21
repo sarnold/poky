@@ -61,16 +61,17 @@ PTEST_ENABLED = "0"
 export CONFIG_SITE = "${COREBASE}/meta/site/native"
 
 # set the compiler as well. It could have been set to something else
-export CC = "${CCACHE}${HOST_PREFIX}gcc ${HOST_CC_ARCH}"
-export CXX = "${CCACHE}${HOST_PREFIX}g++ ${HOST_CC_ARCH}"
-export FC = "${CCACHE}${HOST_PREFIX}gfortran ${HOST_CC_ARCH}"
-export CPP = "${HOST_PREFIX}gcc ${HOST_CC_ARCH} -E"
-export LD = "${HOST_PREFIX}ld ${HOST_LD_ARCH} "
-export CCLD = "${CC}"
-export AR = "${HOST_PREFIX}ar"
-export AS = "${HOST_PREFIX}as ${HOST_AS_ARCH}"
-export RANLIB = "${HOST_PREFIX}ranlib"
-export STRIP = "${HOST_PREFIX}strip"
+export CC = "${BUILD_CC}"
+export CXX = "${BUILD_CXX}"
+export FC = "${BUILD_FC}"
+export CPP = "${BUILD_CPP}"
+export LD = "${BUILD_LD}"
+export CCLD = "${BUILD_CCLD}"
+export AR = "${BUILD_AR}"
+export AS = "${BUILD_AS}"
+export RANLIB = "${BUILD_RANLIB}"
+export STRIP = "${BUILD_STRIP}"
+export NM = "${BUILD_NM}"
 
 # Path prefixes
 base_prefix = "${STAGING_DIR_NATIVE}"
@@ -109,6 +110,7 @@ PKG_CONFIG_SYSROOT_DIR = ""
 # we dont want libc-uclibc or libc-glibc to kick in for native recipes
 LIBCOVERRIDE = ""
 CLASSOVERRIDE = "class-native"
+MACHINEOVERRIDES = ""
 
 PATH_prepend = "${COREBASE}/scripts/native-intercept:"
 
@@ -130,13 +132,17 @@ python native_virtclass_handler () {
         deps = bb.utils.explode_deps(deps)
         newdeps = []
         for dep in deps:
-            if "-cross-" in dep:
+            if dep == pn:
+                continue
+            elif "-cross-" in dep:
                 newdeps.append(dep.replace("-cross", "-native"))
             elif not dep.endswith("-native"):
                 newdeps.append(dep + "-native")
             else:
                 newdeps.append(dep)
         d.setVar(varname, " ".join(newdeps))
+
+    e.data.setVar("OVERRIDES", e.data.getVar("OVERRIDES", False) + ":virtclass-native")
 
     map_dependencies("DEPENDS", e.data)
     for pkg in [e.data.getVar("PN", True), "", "${PN}"]:
@@ -147,14 +153,17 @@ python native_virtclass_handler () {
         map_dependencies("RREPLACES", e.data, pkg)
 
     provides = e.data.getVar("PROVIDES", True)
+    nprovides = []
     for prov in provides.split():
         if prov.find(pn) != -1:
-            continue
-        if not prov.endswith("-native"):
-            provides = provides.replace(prov, prov + "-native")
-    e.data.setVar("PROVIDES", provides)
+            nprovides.append(prov)
+        elif not prov.endswith("-native"):
+            nprovides.append(prov.replace(prov, prov + "-native"))
+        else:
+            nprovides.append(prov)
+    e.data.setVar("PROVIDES", ' '.join(nprovides))
 
-    e.data.setVar("OVERRIDES", e.data.getVar("OVERRIDES", False) + ":virtclass-native")
+
 }
 
 addhandler native_virtclass_handler
@@ -162,6 +171,7 @@ native_virtclass_handler[eventmask] = "bb.event.RecipePreFinalise"
 
 deltask package
 deltask packagedata
+deltask package_qa
 deltask package_write_ipk
 deltask package_write_deb
 deltask package_write_rpm

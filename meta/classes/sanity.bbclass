@@ -3,7 +3,7 @@
 #
 
 SANITY_REQUIRED_UTILITIES ?= "patch diffstat makeinfo git bzip2 tar \
-    gzip gawk chrpath wget cpio perl"
+    gzip gawk chrpath wget cpio perl file"
 
 def bblayers_conf_file(d):
     return os.path.join(d.getVar('TOPDIR', True), 'conf/bblayers.conf')
@@ -67,6 +67,12 @@ python oecore_update_bblayers() {
                 sys.exit()
 
         current_lconf += 1
+        sanity_conf_update(bblayers_fn, lines, 'LCONF_VERSION', current_lconf)
+        return
+
+    elif current_lconf == 5 and lconf_version > 5:
+        # Null update, to avoid issues with people switching between poky and other distros
+        current_lconf = 6
         sanity_conf_update(bblayers_fn, lines, 'LCONF_VERSION', current_lconf)
         return
 
@@ -150,10 +156,9 @@ def check_toolchain_tune(data, tune, multilib):
             bb.debug(2, "  %s: %s" % (feature, valid_tunes[feature]))
         else:
             tune_errors.append("Feature '%s' is not defined." % feature)
-    whitelist = localdata.getVar("TUNEABI_WHITELIST", True) or ''
-    override = localdata.getVar("TUNEABI_OVERRIDE", True) or ''
+    whitelist = localdata.getVar("TUNEABI_WHITELIST", True)
     if whitelist:
-        tuneabi = localdata.getVar("TUNEABI_tune-%s" % tune, True) or ''
+        tuneabi = localdata.getVar("TUNEABI_tune-%s" % tune, True)
         if not tuneabi:
             tuneabi = tune
         if True not in [x in whitelist.split() for x in tuneabi.split()]:
@@ -204,7 +209,7 @@ def check_toolchain(data):
 def check_conf_exists(fn, data):
     bbpath = []
     fn = data.expand(fn)
-    vbbpath = data.getVar("BBPATH")
+    vbbpath = data.getVar("BBPATH", False)
     if vbbpath:
         bbpath += vbbpath.split(":")
     for p in bbpath:
@@ -254,6 +259,11 @@ def check_not_nfs(path, name):
         return "The %s: %s can't be located on nfs.\n" % (name, path)
     return ""
 
+# Check that path isn't a broken symlink
+def check_symlink(lnk, data):
+    if os.path.islink(lnk) and not os.path.exists(lnk):
+        raise_sanity_error("%s is a broken symlink." % lnk, data)
+
 def check_connectivity(d):
     # URI's to check can be set in the CONNECTIVITY_CHECK_URIS variable
     # using the same syntax as for SRC_URI. If the variable is not set
@@ -265,7 +275,7 @@ def check_connectivity(d):
     # CONNECTIVITY_CHECK_URIS are set
     network_enabled = not d.getVar('BB_NO_NETWORK', True)
     check_enabled = len(test_uris)
-    # Take a copy of the data store and unset MIRRORS and PREMIRROS
+    # Take a copy of the data store and unset MIRRORS and PREMIRRORS
     data = bb.data.createCopy(d)
     data.delVar('PREMIRRORS')
     data.delVar('MIRRORS')
@@ -273,12 +283,12 @@ def check_connectivity(d):
         try:
             fetcher = bb.fetch2.Fetch(test_uris, data)
             fetcher.checkstatus()
-        except Exception:
+        except Exception as err:
             # Allow the message to be configured so that users can be
             # pointed to a support mechanism.
             msg = data.getVar('CONNECTIVITY_CHECK_MSG', True) or ""
             if len(msg) == 0:
-                msg = "Failed to fetch test data from the network. Please ensure your network is configured correctly.\n"
+                msg = "%s. Please ensure your network is configured correctly.\n" % err
             retval = msg
 
     return retval
@@ -471,7 +481,6 @@ def sanity_check_conffiles(status, d):
             if success:
                 bb.note("Your conf/bblayers.conf has been automatically updated.")
                 status.reparse = True
-                break
         if not status.reparse:
             status.addresult("Your version of bblayers.conf has the wrong LCONF_VERSION (has %s, expecting %s).\nPlease compare the your file against bblayers.conf.sample and merge any changes before continuing.\n\"meld conf/bblayers.conf ${COREBASE}/meta*/conf/bblayers.conf.sample\" is a good way to visualise the changes.\n" % (current_lconf, lconf_version))
 
@@ -487,6 +496,8 @@ def sanity_handle_abichanges(status, d):
     #
     # Check the 'ABI' of TMPDIR
     #
+    import subprocess
+
     current_abi = d.getVar('OELAYOUT_ABI', True)
     abifile = d.getVar('SANITY_ABIFILE', True)
     if os.path.exists(abifile):
@@ -520,6 +531,22 @@ def sanity_handle_abichanges(status, d):
             status.addresult("Your configuration is using stamp files including the sstate hash but your build directory was built with stamp files that do not include this.\nTo continue, either rebuild or switch back to the OEBasic signature handler with BB_SIGNATURE_HANDLER = 'OEBasic'.\n")
         elif (abi != current_abi and current_abi == "9"):
             status.addresult("The layout of the TMPDIR STAMPS directory has changed. Please clean out TMPDIR and rebuild (sstate will be still be valid and reused)\n")
+        elif (abi != current_abi and current_abi == "10" and (abi == "8" or abi == "9")):
+            bb.note("Converting staging layout from version 8/9 to layout version 10")
+            cmd = d.expand("grep -r -l sysroot-providers/virtual_kernel ${SSTATE_MANIFESTS}")
+            ret, result = oe.utils.getstatusoutput(cmd)
+            result = result.split()
+            for f in result:
+                bb.note("Uninstalling manifest file %s" % f)
+                sstate_clean_manifest(f, d)
+            with open(abifile, "w") as f:
+                f.write(current_abi)
+        elif abi == "10" and current_abi == "11":
+            bb.note("Converting staging layout from version 10 to layout version 11")
+            # Files in xf86-video-modesetting moved to xserver-xorg and bitbake can't currently handle that:
+            subprocess.call(d.expand("rm ${TMPDIR}/sysroots/*/usr/lib/xorg/modules/drivers/modesetting_drv.so ${TMPDIR}/sysroots/*/pkgdata/runtime/xf86-video-modesetting* ${TMPDIR}/sysroots/*/pkgdata/runtime-reverse/xf86-video-modesetting* ${TMPDIR}/sysroots/*/pkgdata/shlibs2/xf86-video-modesetting*"), shell=True)
+            with open(abifile, "w") as f:
+                f.write(current_abi)
         elif (abi != current_abi):
             # Code to convert from one ABI to another could go here if possible.
             status.addresult("Error, TMPDIR has changed its layout version number (%s to %s) and you need to either rebuild, revert or adjust it at your own risk.\n" % (abi, current_abi))
@@ -639,9 +666,9 @@ def check_sanity_version_change(status, d):
             status.addresult("You have a 32-bit libc, but no 32-bit headers.  You must install the 32-bit libc headers.\n")
 
     bbpaths = d.getVar('BBPATH', True).split(":")
-    if ("." in bbpaths or "" in bbpaths) and not status.reparse:
+    if ("." in bbpaths or "./" in bbpaths or "" in bbpaths) and not status.reparse:
         status.addresult("BBPATH references the current directory, either through "    \
-                "an empty entry, or a '.'.\n\t This is unsafe and means your "\
+                "an empty entry, a './' or a '.'.\n\t This is unsafe and means your "\
                 "layer configuration is adding empty elements to BBPATH.\n\t "\
                 "Please check your layer.conf files and other BBPATH "        \
                 "settings to remove the current working directory "           \
@@ -659,6 +686,7 @@ def check_sanity_version_change(status, d):
     status.addresult(check_not_nfs(tmpdir, "TMPDIR"))
 
 def check_sanity_everybuild(status, d):
+    import os, stat
     # Sanity tests which test the users environment so need to run at each build (or are so cheap
     # it makes sense to always run them.
 
@@ -679,8 +707,8 @@ def check_sanity_everybuild(status, d):
     sanity_check_conffiles(status, d)
 
     paths = d.getVar('PATH', True).split(":")
-    if "." in paths or "" in paths:
-        status.addresult("PATH contains '.' or '' (empty element), which will break the build, please remove this.\nParsed PATH is " + str(paths) + "\n")
+    if "." in paths or "./" in paths or "" in paths:
+        status.addresult("PATH contains '.', './' or '' (empty element), which will break the build, please remove this.\nParsed PATH is " + str(paths) + "\n")
 
     # Check that the DISTRO is valid, if set
     # need to take into account DISTRO renaming DISTRO
@@ -696,6 +724,7 @@ def check_sanity_everybuild(status, d):
         status.addresult("DL_DIR is not set. Your environment is misconfigured, check that DL_DIR is set, and if the directory exists, that it is writable. \n")
     if os.path.exists(dldir) and not os.access(dldir, os.W_OK):
         status.addresult("DL_DIR: %s exists but you do not appear to have write access to it. \n" % dldir)
+    check_symlink(dldir, d)
 
     # Check that the MACHINE is valid, if it is set
     machinevalid = True
@@ -754,6 +783,51 @@ def check_sanity_everybuild(status, d):
     if oeroot.find(' ') != -1:
         status.addresult("Error, you have a space in your COREBASE directory path. Please move the installation to a directory which doesn't include a space since autotools doesn't support this.")
 
+    # Check the format of MIRRORS, PREMIRRORS and SSTATE_MIRRORS
+    import re
+    mirror_vars = ['MIRRORS', 'PREMIRRORS', 'SSTATE_MIRRORS']
+    protocols = ['http', 'ftp', 'file', 'https', \
+                 'git', 'gitsm', 'hg', 'osc', 'p4', 'svn', \
+                 'bzr', 'cvs']
+    for mirror_var in mirror_vars:
+        mirrors = (d.getVar(mirror_var, True) or '').replace('\\n', '\n').split('\n')
+        for mirror_entry in mirrors:
+            mirror_entry = mirror_entry.strip()
+            if not mirror_entry:
+                # ignore blank lines
+                continue
+
+            try:
+                pattern, mirror = mirror_entry.split()
+            except ValueError:
+                bb.warn('Invalid %s: %s, should be 2 members.' % (mirror_var, mirror_entry.strip()))
+                continue
+
+            decoded = bb.fetch2.decodeurl(pattern)
+            try:
+                pattern_scheme = re.compile(decoded[0])
+            except re.error as exc:
+                bb.warn('Invalid scheme regex (%s) in %s; %s' % (pattern, mirror_var, mirror_entry))
+                continue
+
+            if not any(pattern_scheme.match(protocol) for protocol in protocols):
+                bb.warn('Invalid protocol (%s) in %s: %s' % (decoded[0], mirror_var, mirror_entry))
+                continue
+
+            if not any(mirror.startswith(protocol + '://') for protocol in protocols):
+                bb.warn('Invalid protocol in %s: %s' % (mirror_var, mirror_entry))
+                continue
+
+            if mirror.startswith('file://'):
+                import urlparse
+                check_symlink(urlparse.urlparse(mirror).path, d)
+                # SSTATE_MIRROR ends with a /PATH string
+                if mirror.endswith('/PATH'):
+                    # remove /PATH$ from SSTATE_MIRROR to get a working
+                    # base directory path
+                    mirror_base = urlparse.urlparse(mirror[:-1*len('/PATH')]).path
+                    check_symlink(mirror_base, d)
+
     # Check that TMPDIR hasn't changed location since the last time we were run
     tmpdir = d.getVar('TMPDIR', True)
     checkfile = os.path.join(tmpdir, "saved_tmpdir")
@@ -764,12 +838,34 @@ def check_sanity_everybuild(status, d):
                 status.addresult("Error, TMPDIR has changed location. You need to either move it back to %s or rebuild\n" % saved_tmpdir)
     else:
         bb.utils.mkdirhier(tmpdir)
+        # Remove setuid, setgid and sticky bits from TMPDIR
+        try:
+            os.chmod(tmpdir, os.stat(tmpdir).st_mode & ~ stat.S_ISUID)
+            os.chmod(tmpdir, os.stat(tmpdir).st_mode & ~ stat.S_ISGID)
+            os.chmod(tmpdir, os.stat(tmpdir).st_mode & ~ stat.S_ISVTX)
+        except OSError as exc:
+            bb.warn("Unable to chmod TMPDIR: %s" % exc)
         with open(checkfile, "w") as f:
             f.write(tmpdir)
 
-def check_sanity(sanity_data):
-    import subprocess
+    # Check vmdk and live can't be built together.
+    if 'vmdk' in d.getVar('IMAGE_FSTYPES', True) and 'live' in d.getVar('IMAGE_FSTYPES', True):
+        status.addresult("Error, IMAGE_FSTYPES vmdk and live can't be built together\n")
 
+    # Check vdi and live can't be built together.
+    if 'vdi' in d.getVar('IMAGE_FSTYPES', True) and 'live' in d.getVar('IMAGE_FSTYPES', True):
+        status.addresult("Error, IMAGE_FSTYPES vdi and live can't be built together\n")
+
+    # Check qcow2 and live can't be built together.
+    if 'qcow2' in d.getVar('IMAGE_FSTYPES', True) and 'live' in d.getVar('IMAGE_FSTYPES', True):
+        status.addresult("Error, IMAGE_FSTYPES qcow2 and live can't be built together\n")
+
+    # Check /bin/sh links to dash or bash
+    real_sh = os.path.realpath('/bin/sh')
+    if not real_sh.endswith('/dash') and not real_sh.endswith('/bash'):
+        status.addresult("Error, /bin/sh links to %s, must be dash or bash\n" % real_sh)
+
+def check_sanity(sanity_data):
     class SanityStatus(object):
         def __init__(self):
             self.messages = ""
@@ -784,6 +880,8 @@ def check_sanity(sanity_data):
 
     tmpdir = sanity_data.getVar('TMPDIR', True)
     sstate_dir = sanity_data.getVar('SSTATE_DIR', True)
+
+    check_symlink(sstate_dir, sanity_data)
 
     # Check saved sanity info
     last_sanity_version = 0

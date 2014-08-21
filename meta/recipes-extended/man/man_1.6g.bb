@@ -9,7 +9,20 @@ PR = "r1"
 
 DEPENDS = "groff less"
 
-SRC_URI = "http://primates.ximian.com/~flucifredi/${BPN}/${BPN}-${PV}.tar.gz \
+def compress_pkg(d):
+    if "compress_doc" in (d.getVar("INHERIT", True) or "").split():
+         compress = d.getVar("DOC_COMPRESS", True)
+         if compress == "gz":
+             return "gzip"
+         elif compress == "bz2":
+             return "bzip2"
+         elif compress == "xz":
+             return "xz"
+    return ""
+
+RDEPENDS_${PN} += "${@compress_pkg(d)}"
+
+SRC_URI = "http://pkgs.fedoraproject.org/lookaside/pkgs/man2html/${BP}.tar.gz/ba154d5796928b841c9c69f0ae376660/${BP}.tar.gz \
            file://man-1.5k-confpath.patch;striplevel=0 \
            file://man-1.5h1-make.patch \
            file://man-1.5k-nonascii.patch \
@@ -37,17 +50,22 @@ SRC_URI = "http://primates.ximian.com/~flucifredi/${BPN}/${BPN}-${PV}.tar.gz \
            file://man.1.gz;unpack=false \
            file://man.7.gz;unpack=false \
            file://man.conf \
-           file://manpath.5.gz;unpack=false"
+           file://manpath.5.gz;unpack=false \
+           file://man-1.6g-whatis3.patch \
+           file://configure_sed.patch \
+"
 
 SRC_URI[md5sum] = "ba154d5796928b841c9c69f0ae376660"
 SRC_URI[sha256sum] = "ccdcb8c3f4e0080923d7e818f0e4a202db26c46415eaef361387c20995b8959f"
+
+CFLAGS += "-DSYSV"
 
 do_configure () {
         ${S}/configure -default -confdir /etc +sgid +fhs +lang all
 }
 
 
-fakeroot do_install() {
+do_install() {
         oe_runmake install DESTDIR=${D}
 }
 

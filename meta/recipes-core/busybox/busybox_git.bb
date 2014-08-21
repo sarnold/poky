@@ -1,8 +1,8 @@
 require busybox.inc
 
-SRCREV = "d9e0c438e10e2155513e5d26498af472c5137d65"
+SRCREV = "be947c4d97c0dacb703a6f24dd813ff6dd3a33b6"
 # Lookout for PV bump too when SRCREV is changed
-PV = "1.22.1+git${SRCPV}"
+PV = "1.23.2+git${SRCPV}"
 
 S = "${WORKDIR}/git"
 
@@ -24,6 +24,7 @@ SRC_URI = "git://busybox.net/busybox.git \
            file://busybox-syslog.default \
            file://mdev \
            file://mdev.conf \
+           file://mdev-mount.sh \
            file://umount.busybox \
            file://defconfig \
            file://busybox-syslog.service.in \
@@ -33,6 +34,13 @@ SRC_URI = "git://busybox.net/busybox.git \
            file://inetd.conf \
            file://inetd \
            file://login-utilities.cfg \
+           file://recognize_connmand.patch \
+           file://busybox-cross-menuconfig.patch \
+           file://0001-ifconfig-fix-double-free-fatal-error-in-INET_sprint.patch \
+           file://0001-chown-fix-help-text.patch \
+           file://mount-via-label.cfg \
+           file://sha1sum.cfg \
+           file://sha256sum.cfg \
 "
 
 EXTRA_OEMAKE += "V=1 ARCH=${TARGET_ARCH} CROSS_COMPILE=${TARGET_PREFIX} SKIP_STRIP=y"

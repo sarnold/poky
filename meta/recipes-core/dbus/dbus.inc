@@ -8,7 +8,7 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=10dded3b58148f3f1fd804b26354af3e \
 DEPENDS = "expat virtual/libintl"
 RDEPENDS_dbus_class-native = ""
 RDEPENDS_dbus_class-nativesdk = ""
-PACKAGES += "${@bb.utils.contains('PTEST_ENABLED', '1', 'dbus-ptest', '', d)}"
+PACKAGES += "${@bb.utils.contains('DISTRO_FEATURES', 'ptest', '${PN}-ptest', '', d)}"
 ALLOW_EMPTY_dbus-ptest = "1"
 RDEPENDS_dbus-ptest_class-target = "dbus-test-ptest"
 
@@ -143,12 +143,12 @@ do_install_class-native() {
 	autotools_do_install
 
 	# for dbus-glib-native introspection generation
-	install -d ${STAGING_DATADIR_NATIVE}/dbus/
+	install -d ${D}${STAGING_DATADIR_NATIVE}/dbus/
 	# N.B. is below install actually required?
-	install -m 0644 bus/session.conf ${STAGING_DATADIR_NATIVE}/dbus/session.conf
+	install -m 0644 bus/session.conf ${D}${STAGING_DATADIR_NATIVE}/dbus/session.conf
 
 	# dbus-glib-native and dbus-glib need this xml file
-	./bus/dbus-daemon --introspect > ${STAGING_DATADIR_NATIVE}/dbus/dbus-bus-introspect.xml
+	./bus/dbus-daemon --introspect > ${D}${STAGING_DATADIR_NATIVE}/dbus/dbus-bus-introspect.xml
 	
 	# dbus-launch has no X support so lets not install it in case the host
 	# has a more featured and useful version
@@ -166,3 +166,5 @@ do_install_class-nativesdk() {
 	rm -rf ${D}${localstatedir}/run
 }
 BBCLASSEXTEND = "native nativesdk"
+
+INSANE_SKIP_${PN}-ptest += "build-deps"

@@ -41,7 +41,7 @@ class TaskData:
     """
     BitBake Task Data implementation
     """
-    def __init__(self, abort = True, tryaltconfigs = False, skiplist = None):
+    def __init__(self, abort = True, tryaltconfigs = False, skiplist = None, allowincomplete = False):
         self.build_names_index = []
         self.run_names_index = []
         self.fn_index = []
@@ -70,6 +70,7 @@ class TaskData:
 
         self.abort = abort
         self.tryaltconfigs = tryaltconfigs
+        self.allowincomplete = allowincomplete
 
         self.skiplist = skiplist
 
@@ -513,7 +514,7 @@ class TaskData:
             self.add_runtime_target(fn, item)
             self.add_tasks(fn, dataCache)
 
-    def fail_fnid(self, fnid, missing_list = []):
+    def fail_fnid(self, fnid, missing_list=None):
         """
         Mark a file as failed (unbuildable)
         Remove any references from build and runtime provider lists
@@ -522,6 +523,8 @@ class TaskData:
         """
         if fnid in self.failed_fnids:
             return
+        if not missing_list:
+            missing_list = []
         logger.debug(1, "File '%s' is unbuildable, removing...", self.fn_index[fnid])
         self.failed_fnids.append(fnid)
         for target in self.build_targets:
@@ -535,7 +538,7 @@ class TaskData:
                 if len(self.run_targets[target]) == 0:
                     self.remove_runtarget(target, missing_list)
 
-    def remove_buildtarget(self, targetid, missing_list = []):
+    def remove_buildtarget(self, targetid, missing_list=None):
         """
         Mark a build target as failed (unbuildable)
         Trigger removal of any files that have this as a dependency
@@ -560,7 +563,7 @@ class TaskData:
             logger.error("Required build target '%s' has no buildable providers.\nMissing or unbuildable dependency chain was: %s", target, missing_list)
             raise bb.providers.NoProvider(target)
 
-    def remove_runtarget(self, targetid, missing_list = []):
+    def remove_runtarget(self, targetid, missing_list=None):
         """
         Mark a run target as failed (unbuildable)
         Trigger removal of any files that have this as a dependency
@@ -594,9 +597,10 @@ class TaskData:
                     added = added + 1
                 except bb.providers.NoProvider:
                     targetid = self.getbuild_id(target)
-                    if self.abort and targetid in self.external_targets:
+                    if self.abort and targetid in self.external_targets and not self.allowincomplete:
                         raise
-                    self.remove_buildtarget(targetid)
+                    if not self.allowincomplete:
+                        self.remove_buildtarget(targetid)
             for target in self.get_unresolved_run_targets(dataCache):
                 try:
                     self.add_rprovider(cfgData, dataCache, target)
@@ -607,6 +611,18 @@ class TaskData:
             if added == 0:
                 break
         # self.dump_data()
+
+    def get_providermap(self):
+        virts = []
+        virtmap = {}
+
+        for name in self.build_names_index:
+            if name.startswith("virtual/"):
+                virts.append(name)
+        for v in virts:
+            if self.have_build_target(v):
+                virtmap[v] = self.fn_index[self.get_provider(v)[0]]
+        return virtmap
 
     def dump_data(self):
         """

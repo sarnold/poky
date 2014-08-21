@@ -3,7 +3,7 @@ PR = "r2"
 LICENSE = "MIT"
 
 # Qt4 could NOT be built on MIPS64 with 64 bits userspace
-COMPATIBLE_HOST_mips64 = "mips64.*-linux-gnun32"
+COMPATIBLE_HOST_mips64 = "null"
 
 inherit packagegroup
 
@@ -36,7 +36,6 @@ RDEPENDS_${PN} = " \
 	qt4-embedded-plugin-imageformat-svg \
 	qt4-embedded-plugin-imageformat-tiff \
 	qt4-embedded-plugin-mousedriver-tslib \
-	qt4-embedded-plugin-phonon-backend-gstreamer \
 	qt4-embedded-plugin-script-dbus \
 	qt4-embedded-plugin-sqldriver-sqlite \
 	${TOUCH} \
@@ -48,5 +47,6 @@ RDEPENDS_${PN} = " \
 
 RRECOMMENDS_${PN} = " \
 	libqt-embeddedxmlpatterns4 \
+	qt4-embedded-plugin-phonon-backend-gstreamer \
 "
 

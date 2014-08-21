@@ -17,14 +17,14 @@ BUILDHISTORY_COMMIT ?= "0"
 BUILDHISTORY_COMMIT_AUTHOR ?= "buildhistory <buildhistory@${DISTRO}>"
 BUILDHISTORY_PUSH_REPO ?= ""
 
-SSTATEPOSTINSTFUNCS += "buildhistory_emit_pkghistory"
+SSTATEPOSTINSTFUNCS_append = " buildhistory_emit_pkghistory"
 # We want to avoid influence the signatures of sstate tasks - first the function itself:
 sstate_install[vardepsexclude] += "buildhistory_emit_pkghistory"
 # then the value added to SSTATEPOSTINSTFUNCS:
 SSTATEPOSTINSTFUNCS[vardepvalueexclude] .= "| buildhistory_emit_pkghistory"
 
 #
-# Write out metadata about this package for comparision when writing future packages
+# Write out metadata about this package for comparison when writing future packages
 #
 python buildhistory_emit_pkghistory() {
     if not d.getVar('BB_CURRENTTASK', True) in ['packagedata', 'packagedata_setscene']:
@@ -80,7 +80,7 @@ python buildhistory_emit_pkghistory() {
         pkginfo = PackageInfo(pkg)
         with open(histfile, "r") as f:
             for line in f:
-                lns = line.split('=')
+                lns = line.split('=', 1)
                 name = lns[0].strip()
                 value = lns[1].strip(" \t\r\n").strip('"')
                 if name == "PE":
@@ -155,7 +155,7 @@ python buildhistory_emit_pkghistory() {
         with open(os.path.join(pkgdata_dir, pn)) as f:
             for line in f.readlines():
                 if line.startswith('PACKAGES: '):
-                    packages = squashspaces(line.split(': ', 1)[1])
+                    packages = oe.utils.squashspaces(line.split(': ', 1)[1])
                     break
     except IOError as e:
         if e.errno == errno.ENOENT:
@@ -172,16 +172,19 @@ python buildhistory_emit_pkghistory() {
         for item in os.listdir(pkghistdir):
             if item != "latest" and item != "latest_srcrev":
                 if item not in packagelist:
-                    subdir = os.path.join(pkghistdir, item)
-                    for subfile in os.listdir(subdir):
-                        os.unlink(os.path.join(subdir, subfile))
-                    os.rmdir(subdir)
+                    itempath = os.path.join(pkghistdir, item)
+                    if os.path.isdir(itempath):
+                        for subfile in os.listdir(itempath):
+                            os.unlink(os.path.join(itempath, subfile))
+                        os.rmdir(itempath)
+                    else:
+                        os.unlink(itempath)
 
     rcpinfo = RecipeInfo(pn)
     rcpinfo.pe = pe
     rcpinfo.pv = pv
     rcpinfo.pr = pr
-    rcpinfo.depends = sortlist(squashspaces(d.getVar('DEPENDS', True) or ""))
+    rcpinfo.depends = sortlist(oe.utils.squashspaces(d.getVar('DEPENDS', True) or ""))
     rcpinfo.packages = packages
     write_recipehistory(rcpinfo, d)
 
@@ -222,13 +225,13 @@ python buildhistory_emit_pkghistory() {
         pkginfo.pkge = pkge
         pkginfo.pkgv = pkgv
         pkginfo.pkgr = pkgr
-        pkginfo.rprovides = sortpkglist(squashspaces(pkgdata.get('RPROVIDES', "")))
-        pkginfo.rdepends = sortpkglist(squashspaces(pkgdata.get('RDEPENDS', "")))
-        pkginfo.rrecommends = sortpkglist(squashspaces(pkgdata.get('RRECOMMENDS', "")))
-        pkginfo.rsuggests = sortpkglist(squashspaces(pkgdata.get('RSUGGESTS', "")))
-        pkginfo.rreplaces = sortpkglist(squashspaces(pkgdata.get('RREPLACES', "")))
-        pkginfo.rconflicts = sortpkglist(squashspaces(pkgdata.get('RCONFLICTS', "")))
-        pkginfo.files = squashspaces(pkgdata.get('FILES', ""))
+        pkginfo.rprovides = sortpkglist(oe.utils.squashspaces(pkgdata.get('RPROVIDES', "")))
+        pkginfo.rdepends = sortpkglist(oe.utils.squashspaces(pkgdata.get('RDEPENDS', "")))
+        pkginfo.rrecommends = sortpkglist(oe.utils.squashspaces(pkgdata.get('RRECOMMENDS', "")))
+        pkginfo.rsuggests = sortpkglist(oe.utils.squashspaces(pkgdata.get('RSUGGESTS', "")))
+        pkginfo.rreplaces = sortpkglist(oe.utils.squashspaces(pkgdata.get('RREPLACES', "")))
+        pkginfo.rconflicts = sortpkglist(oe.utils.squashspaces(pkgdata.get('RCONFLICTS', "")))
+        pkginfo.files = oe.utils.squashspaces(pkgdata.get('FILES', ""))
         for filevar in pkginfo.filevars:
             pkginfo.filevars[filevar] = pkgdata.get(filevar, "")
 
@@ -242,6 +245,9 @@ python buildhistory_emit_pkghistory() {
         pkginfo.size = int(pkgdata['PKGSIZE'])
 
         write_pkghistory(pkginfo, d)
+
+    # Create files-in-<package-name>.txt files containing a list of files of each recipe's package
+    bb.build.exec_func("buildhistory_list_pkg_files", d)
 }
 
 
@@ -374,7 +380,7 @@ buildhistory_get_installed() {
 	printf "" > $1/installed-package-sizes.tmp
 	cat $pkgcache | while read pkg pkgfile pkgarch
 	do
-		size=`oe-pkgdata-util read-value ${PKGDATA_DIR} "PKGSIZE" ${pkg}_${pkgarch}`
+		size=`oe-pkgdata-util -p ${PKGDATA_DIR} read-value "PKGSIZE" ${pkg}_${pkgarch}`
 		if [ "$size" != "" ] ; then
 			echo "$size $pkg" >> $1/installed-package-sizes.tmp
 		fi
@@ -432,9 +438,27 @@ buildhistory_get_sdk_installed_target() {
 buildhistory_list_files() {
 	# List the files in the specified directory, but exclude date/time etc.
 	# This awk script is somewhat messy, but handles where the size is not printed for device files under pseudo
-	( cd $1 && find . -printf "%M %-10u %-10g %10s %p -> %l\n" | sort -k5 | sed 's/ * -> $//' > $2 )
+	if [ "$3" = "fakeroot" ] ; then
+		( cd $1 && ${FAKEROOTENV} ${FAKEROOTCMD} find . ! -path . -printf "%M %-10u %-10g %10s %p -> %l\n" | sort -k5 | sed 's/ * -> $//' > $2 )
+	else
+		( cd $1 && find . ! -path . -printf "%M %-10u %-10g %10s %p -> %l\n" | sort -k5 | sed 's/ * -> $//' > $2 )
+	fi
 }
 
+buildhistory_list_pkg_files() {
+	# Create individual files-in-package for each recipe's package
+	for pkgdir in $(find ${PKGDEST}/* -maxdepth 0 -type d); do
+		pkgname=$(basename $pkgdir)
+		outfolder="${BUILDHISTORY_DIR_PACKAGE}/$pkgname"
+		outfile="$outfolder/files-in-package.txt"
+		# Make sure the output folder exists so we can create the file
+		if [ ! -d $outfolder ] ; then
+			bbdebug 2 "Folder $outfolder does not exist, file $outfile not created"
+			continue
+		fi
+		buildhistory_list_files $pkgdir $outfile fakeroot
+	done
+}
 
 buildhistory_get_imageinfo() {
 	if [ "${@bb.utils.contains('BUILDHISTORY_FEATURES', 'image', '1', '0', d)}" = "0" ] ; then
@@ -461,10 +485,10 @@ END
 	echo "IMAGESIZE = $imagesize" >> ${BUILDHISTORY_DIR_IMAGE}/image-info.txt
 
 	# Add some configuration information
-	echo "${MACHINE}: ${IMAGE_BASENAME} configured for ${DISTRO} ${DISTRO_VERSION}" > ${BUILDHISTORY_DIR_IMAGE}/build-id
+	echo "${MACHINE}: ${IMAGE_BASENAME} configured for ${DISTRO} ${DISTRO_VERSION}" > ${BUILDHISTORY_DIR_IMAGE}/build-id.txt
 
-	cat >> ${BUILDHISTORY_DIR_IMAGE}/build-id <<END
-${@buildhistory_get_layers(d)}
+	cat >> ${BUILDHISTORY_DIR_IMAGE}/build-id.txt <<END
+${@buildhistory_get_build_id(d)}
 END
 }
 
@@ -484,8 +508,9 @@ END
 	echo "SDKSIZE = $sdksize" >> ${BUILDHISTORY_DIR_SDK}/sdk-info.txt
 }
 
-# By prepending we get in before the removal of packaging files
-ROOTFS_POSTPROCESS_COMMAND =+ " buildhistory_list_installed_image ;\
+# By using ROOTFS_POSTUNINSTALL_COMMAND we get in after uninstallation of
+# unneeded packages but before the removal of packaging files
+ROOTFS_POSTUNINSTALL_COMMAND += " buildhistory_list_installed_image ;\
                                 buildhistory_get_image_installed ; "
 
 IMAGE_POSTPROCESS_COMMAND += " buildhistory_get_imageinfo ; "
@@ -498,11 +523,23 @@ POPULATE_SDK_POST_HOST_COMMAND_append = " buildhistory_list_installed_sdk_host ;
 
 SDK_POSTPROCESS_COMMAND += "buildhistory_get_sdkinfo ; "
 
-def buildhistory_get_layers(d):
+def buildhistory_get_build_id(d):
     if d.getVar('BB_WORKERCONTEXT', True) != '1':
         return ""
-    layertext = "Configured metadata layers:\n%s\n" % '\n'.join(get_layers_branch_rev(d))
-    return layertext
+    localdata = bb.data.createCopy(d)
+    bb.data.update_data(localdata)
+    statuslines = []
+    for func in oe.data.typed_value('BUILDCFG_FUNCS', localdata):
+        g = globals()
+        if func not in g:
+            bb.warn("Build configuration function '%s' does not exist" % func)
+        else:
+            flines = g[func](localdata)
+            if flines:
+                statuslines.extend(flines)
+
+    statusheader = d.getVar('BUILDCFG_HEADER', True)
+    return('\n%s\n%s\n' % (statusheader, '\n'.join(statuslines)))
 
 def buildhistory_get_metadata_revs(d):
     # We want an easily machine-readable format here, so get_layers_branch_rev isn't quite what we want
@@ -513,11 +550,6 @@ def buildhistory_get_metadata_revs(d):
             for i in layers]
     return '\n'.join(medadata_revs)
 
-
-def squashspaces(string):
-    import re
-    return re.sub("\s+", " ", string).strip()
-
 def outputvars(vars, listvars, d):
     vars = vars.split()
     listvars = listvars.split()
@@ -526,7 +558,7 @@ def outputvars(vars, listvars, d):
         value = d.getVar(var, True) or ""
         if var in listvars:
             # Squash out spaces
-            value = squashspaces(value)
+            value = oe.utils.squashspaces(value)
         ret += "%s = %s\n" % (var, value)
     return ret.rstrip('\n')
 
@@ -553,6 +585,42 @@ def buildhistory_get_cmdline(d):
     return '%s %s' % (bincmd, ' '.join(sys.argv[1:]))
 
 
+buildhistory_single_commit() {
+	if [ "$3" = "" ] ; then
+		commitopts="${BUILDHISTORY_DIR}/ --allow-empty"
+		item="No changes"
+	else
+		commitopts="$3 metadata-revs"
+		item="$3"
+	fi
+	if [ "${BUILDHISTORY_BUILD_FAILURES}" = "0" ] ; then
+		result="succeeded"
+	else
+		result="failed"
+	fi
+	case ${BUILDHISTORY_BUILD_INTERRUPTED} in
+		1)
+			result="$result (interrupted)"
+			;;
+		2)
+			result="$result (force interrupted)"
+			;;
+	esac
+	commitmsgfile=`mktemp`
+	cat > $commitmsgfile << END
+$item: Build ${BUILDNAME} of ${DISTRO} ${DISTRO_VERSION} for machine ${MACHINE} on $2
+
+cmd: $1
+
+result: $result
+
+metadata revisions:
+END
+	cat ${BUILDHISTORY_DIR}/metadata-revs >> $commitmsgfile
+	git commit $commitopts -F $commitmsgfile --author "${BUILDHISTORY_COMMIT_AUTHOR}" > /dev/null
+	rm $commitmsgfile
+}
+
 buildhistory_commit() {
 	if [ ! -d ${BUILDHISTORY_DIR} ] ; then
 		# Code above that creates this dir never executed, so there can't be anything to commit
@@ -573,6 +641,15 @@ END
 			git tag -f build-minus-2 build-minus-1 > /dev/null 2>&1 || true
 			git tag -f build-minus-1 > /dev/null 2>&1 || true
 		fi
+		# If the user hasn't set up their name/email, set some defaults
+		# just for this repo (otherwise the commit will fail with older
+		# versions of git)
+		if ! git config user.email > /dev/null ; then
+			git config --local user.email "buildhistory@${DISTRO}"
+		fi
+		if ! git config user.name > /dev/null ; then
+			git config --local user.name "buildhistory"
+		fi
 		# Check if there are new/changed files to commit (other than metadata-revs)
 		repostatus=`git status --porcelain | grep -v " metadata-revs$"`
 		HOSTNAME=`hostname 2>/dev/null || echo unknown`
@@ -582,14 +659,14 @@ END
 			# porcelain output looks like "?? packages/foo/bar"
 			# Ensure we commit metadata-revs with the first commit
 			for entry in `echo "$repostatus" | awk '{print $2}' | awk -F/ '{print $1}' | sort | uniq` ; do
-				git commit $entry metadata-revs -m "$entry: Build ${BUILDNAME} of ${DISTRO} ${DISTRO_VERSION} for machine ${MACHINE} on $HOSTNAME" -m "cmd: $CMDLINE" --author "${BUILDHISTORY_COMMIT_AUTHOR}" > /dev/null
+				buildhistory_single_commit "$CMDLINE" "$HOSTNAME" "$entry"
 			done
 			git gc --auto --quiet
-			if [ "${BUILDHISTORY_PUSH_REPO}" != "" ] ; then
-				git push -q ${BUILDHISTORY_PUSH_REPO}
-			fi
 		else
-			git commit ${BUILDHISTORY_DIR}/ --allow-empty -m "No changes: Build ${BUILDNAME} of ${DISTRO} ${DISTRO_VERSION} for machine ${MACHINE} on $HOSTNAME" -m "cmd: $CMDLINE" --author "${BUILDHISTORY_COMMIT_AUTHOR}" > /dev/null
+			buildhistory_single_commit "$CMDLINE" "$HOSTNAME"
+		fi
+		if [ "${BUILDHISTORY_PUSH_REPO}" != "" ] ; then
+			git push -q ${BUILDHISTORY_PUSH_REPO}
 		fi) || true
 }
 
@@ -597,7 +674,11 @@ python buildhistory_eventhandler() {
     if e.data.getVar('BUILDHISTORY_FEATURES', True).strip():
         if e.data.getVar("BUILDHISTORY_COMMIT", True) == "1":
             bb.note("Writing buildhistory")
-            bb.build.exec_func("buildhistory_commit", e.data)
+            localdata = bb.data.createCopy(e.data)
+            localdata.setVar('BUILDHISTORY_BUILD_FAILURES', str(e._failures))
+            interrupted = getattr(e, '_interrupted', 0)
+            localdata.setVar('BUILDHISTORY_BUILD_INTERRUPTED', str(interrupted))
+            bb.build.exec_func("buildhistory_commit", localdata)
 }
 
 addhandler buildhistory_eventhandler

@@ -1,7 +1,12 @@
 inherit linux-kernel-base kernel-module-split
 
 PROVIDES += "virtual/kernel"
-DEPENDS += "virtual/${TARGET_PREFIX}binutils virtual/${TARGET_PREFIX}gcc kmod-native depmodwrapper-cross"
+DEPENDS += "virtual/${TARGET_PREFIX}binutils virtual/${TARGET_PREFIX}gcc kmod-native depmodwrapper-cross bc-native"
+
+S = "${STAGING_KERNEL_DIR}"
+B = "${WORKDIR}/build"
+KBUILD_OUTPUT = "${B}"
+OE_TERMINAL_EXPORTS += "KBUILD_OUTPUT"
 
 # we include gcc above, we dont need virtual/libc
 INHIBIT_DEFAULT_DEPS = "1"
@@ -12,11 +17,11 @@ INITRAMFS_TASK ?= ""
 INITRAMFS_IMAGE_BUNDLE ?= ""
 
 python __anonymous () {
-    kerneltype = d.getVar('KERNEL_IMAGETYPE', True) or ''
-    if kerneltype == 'uImage':
-        depends = d.getVar("DEPENDS", True)
-        depends = "%s u-boot-mkimage-native" % depends
-        d.setVar("DEPENDS", depends)
+    import re
+
+    kerneltype = d.getVar('KERNEL_IMAGETYPE', True)
+
+    d.setVar("KERNEL_IMAGETYPE_FOR_MAKE", re.sub(r'\.gz$', '', kerneltype))
 
     image = d.getVar('INITRAMFS_IMAGE', True)
     if image:
@@ -29,6 +34,47 @@ python __anonymous () {
     image_task = d.getVar('INITRAMFS_TASK', True)
     if image_task:
         d.appendVarFlag('do_configure', 'depends', ' ${INITRAMFS_TASK}')
+}
+
+# Here we pull in all various kernel image types which we support.
+#
+# In case you're wondering why kernel.bbclass inherits the other image
+# types instead of the other way around, the reason for that is to
+# maintain compatibility with various currently existing meta-layers.
+# By pulling in the various kernel image types here, we retain the
+# original behavior of kernel.bbclass, so no meta-layers should get
+# broken.
+#
+# KERNEL_CLASSES by default pulls in kernel-uimage.bbclass, since this
+# used to be the default behavior when only uImage was supported. This
+# variable can be appended by users who implement support for new kernel
+# image types.
+
+KERNEL_CLASSES ?= " kernel-uimage "
+inherit ${KERNEL_CLASSES}
+
+# Old style kernels may set ${S} = ${WORKDIR}/git for example
+# We need to move these over to STAGING_KERNEL_DIR. We can't just
+# create the symlink in advance as the git fetcher can't cope with
+# the symlink.
+do_unpack[cleandirs] += " ${S} ${STAGING_KERNEL_DIR} ${B} ${STAGING_KERNEL_BUILDDIR}"
+do_clean[cleandirs] += " ${S} ${STAGING_KERNEL_DIR} ${B} ${STAGING_KERNEL_BUILDDIR}"
+base_do_unpack_append () {
+    s = d.getVar("S", True)
+    if s[-1] == '/':
+        # drop trailing slash, so that os.symlink(kernsrc, s) doesn't use s as directory name and fail
+        s=s[:-1]
+    kernsrc = d.getVar("STAGING_KERNEL_DIR", True)
+    if s != kernsrc:
+        bb.utils.mkdirhier(kernsrc)
+        bb.utils.remove(kernsrc, recurse=True)
+        if d.getVar("EXTERNALSRC", True):
+            # With EXTERNALSRC S will not be wiped so we can symlink to it
+            os.symlink(s, kernsrc)
+        else:
+            import shutil
+            shutil.move(s, kernsrc)
+            os.symlink(kernsrc, s)
 }
 
 inherit kernel-arch deploy
@@ -55,7 +101,7 @@ KERNEL_IMAGEDEST = "boot"
 #
 export CMDLINE_CONSOLE = "console=${@d.getVar("KERNEL_CONSOLE",1) or "ttyS0"}"
 
-KERNEL_VERSION = "${@get_kernelversion('${B}')}"
+KERNEL_VERSION = "${@get_kernelversion_headers('${B}')}"
 
 KERNEL_LOCALVERSION ?= ""
 
@@ -78,8 +124,6 @@ KERNEL_ALT_IMAGETYPE ??= ""
 # Define where the kernel headers are installed on the target as well as where
 # they are staged.
 KERNEL_SRC_PATH = "/usr/src/kernel"
-
-KERNEL_IMAGETYPE_FOR_MAKE = "${@(lambda s: s[:-3] if s[-3:] == ".gz" else s)(d.getVar('KERNEL_IMAGETYPE', True))}"
 
 copy_initramfs() {
 	echo "Copying initramfs into ./usr ..."
@@ -171,8 +215,16 @@ kernel_do_compile() {
 
 do_compile_kernelmodules() {
 	unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS MACHINE
-	if (grep -q -i -e '^CONFIG_MODULES=y$' .config); then
-		oe_runmake ${PARALLEL_MAKE} modules CC="${KERNEL_CC}" LD="${KERNEL_LD}" ${KERNEL_EXTRA_ARGS}
+	if (grep -q -i -e '^CONFIG_MODULES=y$' ${B}/.config); then
+		oe_runmake -C ${B} ${PARALLEL_MAKE} modules CC="${KERNEL_CC}" LD="${KERNEL_LD}" ${KERNEL_EXTRA_ARGS}
+
+		# Module.symvers gets updated during the 
+		# building of the kernel modules. We need to
+		# update this in the shared workdir since some
+		# external kernel modules has a dependency on
+		# other kernel modules and will look at this
+		# file to do symbol lookups
+		cp Module.symvers ${STAGING_KERNEL_BUILDDIR}/
 	else
 		bbnote "no modules to compile"
 	fi
@@ -206,12 +258,29 @@ kernel_do_install() {
 	[ -e Module.symvers ] && install -m 0644 Module.symvers ${D}/boot/Module.symvers-${KERNEL_VERSION}
 	install -d ${D}${sysconfdir}/modules-load.d
 	install -d ${D}${sysconfdir}/modprobe.d
+}
+do_install[prefuncs] += "package_get_auto_pr"
 
-	#
-	# Support for external module building - create a minimal copy of the
-	# kernel source tree.
-	#
-	kerneldir=${D}${KERNEL_SRC_PATH}
+addtask shared_workdir after do_compile before do_compile_kernelmodules
+addtask shared_workdir_setscene
+
+do_shared_workdir_setscene () {
+	exit 1
+}
+
+emit_depmod_pkgdata() {
+	# Stash data for depmod
+	install -d ${PKGDESTWORK}/kernel-depmod/
+	echo "${KERNEL_VERSION}" > ${PKGDESTWORK}/kernel-depmod/kernel-abiversion
+	cp ${B}/System.map ${PKGDESTWORK}/kernel-depmod/System.map-${KERNEL_VERSION}
+}
+
+PACKAGEFUNCS += "emit_depmod_pkgdata"
+
+do_shared_workdir () {
+	cd ${B}
+
+	kerneldir=${STAGING_KERNEL_BUILDDIR}
 	install -d $kerneldir
 
 	#
@@ -220,100 +289,46 @@ kernel_do_install() {
 
 	echo "${KERNEL_VERSION}" > $kerneldir/kernel-abiversion
 
-	#
-	# Store kernel image name to allow use during image generation
-	#
+	# Copy files required for module builds
+	cp System.map $kerneldir/System.map-${KERNEL_VERSION}
+	cp Module.symvers $kerneldir/
+	cp .config $kerneldir/
+	mkdir -p $kerneldir/include/config
+	cp include/config/kernel.release $kerneldir/include/config/kernel.release
 
-	echo "${KERNEL_IMAGE_BASE_NAME}" >$kerneldir/kernel-image-name
-
-	#
-	# Copy the entire source tree. In case an external build directory is
-	# used, copy the build directory over first, then copy over the source
-	# dir. This ensures the original Makefiles are used and not the
-	# redirecting Makefiles in the build directory.
-	#
-	find . -depth -not -name "*.cmd" -not -name "*.o" -not -name "*.so.dbg" -not -path "./Documentation*" -not -path "./source*" -not -path "./.*" -print0 | cpio --null -pdlu $kerneldir
-	cp .config $kerneldir
-	if [ "${S}" != "${B}" ]; then
-		pwd="$PWD"
-		cd "${S}"
-		find . -depth -not -path "./Documentation*" -not -path "./.*" -print0 | cpio --null -pdlu $kerneldir
-		cd "$pwd"
+	# We can also copy over all the generated files and avoid special cases
+	# like version.h, but we've opted to keep this small until file creep starts
+	# to happen
+	if [ -e include/linux/version.h ]; then
+		mkdir -p $kerneldir/include/linux
+		cp include/linux/version.h $kerneldir/include/linux/version.h
 	fi
-
-	# Test to ensure that the output file and image type are not actually
-	# the same file. If hardlinking is used, they will be the same, and there's
-	# no need to install.
-	! [ ${KERNEL_OUTPUT} -ef $kerneldir/${KERNEL_IMAGETYPE} ] && install -m 0644 ${KERNEL_OUTPUT} $kerneldir/${KERNEL_IMAGETYPE}
-	install -m 0644 System.map $kerneldir/System.map-${KERNEL_VERSION}
-
-	# Dummy Makefile so the clean below works
-        mkdir $kerneldir/Documentation
-        touch $kerneldir/Documentation/Makefile
-
-	#
-	# Clean and remove files not needed for building modules.
-	# Some distributions go through a lot more trouble to strip out
-	# unecessary headers, for now, we just prune the obvious bits.
-	#
-	# We don't want to leave host-arch binaries in /sysroots, so
-	# we clean the scripts dir while leaving the generated config
-	# and include files.
-	#
-	oe_runmake -C $kerneldir CC="${KERNEL_CC}" LD="${KERNEL_LD}" clean _mrproper_scripts 
-
-	# hide directories that shouldn't have their .c, s and S files deleted
-	for d in tools scripts lib; do
-		mv $kerneldir/$d $kerneldir/.$d
-	done
-
-	# delete .c, .s and .S files, unless we hid a directory as .<dir>. This technique is 
-	# much faster than find -prune and -exec
-	find $kerneldir -not -path '*/\.*' -type f -name "*.[csS]" -delete
-
-	# put the hidden dirs back
-	for d in tools scripts lib; do
-		mv $kerneldir/.$d $kerneldir/$d
-	done
 
 	# As of Linux kernel version 3.0.1, the clean target removes
 	# arch/powerpc/lib/crtsavres.o which is present in
 	# KBUILD_LDFLAGS_MODULE, making it required to build external modules.
 	if [ ${ARCH} = "powerpc" ]; then
-		cp -l arch/powerpc/lib/crtsavres.o $kerneldir/arch/powerpc/lib/crtsavres.o
+		mkdir -p $kerneldir/arch/powerpc/lib/
+		cp arch/powerpc/lib/crtsavres.o $kerneldir/arch/powerpc/lib/crtsavres.o
 	fi
 
-	# Necessary for building modules like compat-wireless.
-	if [ -f include/generated/bounds.h ]; then
-		cp -l include/generated/bounds.h $kerneldir/include/generated/bounds.h
+	if [ -d include/generated ]; then
+		mkdir -p $kerneldir/include/generated/
+		cp -fR include/generated/* $kerneldir/include/generated/
 	fi
+
 	if [ -d arch/${ARCH}/include/generated ]; then
 		mkdir -p $kerneldir/arch/${ARCH}/include/generated/
-		cp -flR arch/${ARCH}/include/generated/* $kerneldir/arch/${ARCH}/include/generated/
-	fi
-
-	# Remove the following binaries which cause strip or arch QA errors
-	# during do_package for cross-compiled platforms
-	bin_files="arch/powerpc/boot/addnote arch/powerpc/boot/hack-coff \
-	           arch/powerpc/boot/mktree scripts/kconfig/zconf.tab.o \
-		   scripts/kconfig/conf.o scripts/kconfig/kxgettext.o"
-	for entry in $bin_files; do
-		rm -f $kerneldir/$entry
-	done
-
-	# kernels <2.6.30 don't have $kerneldir/tools directory so we check if it exists before calling sed
-	if [ -f $kerneldir/tools/perf/Makefile ]; then
-		# Fix SLANG_INC for slang.h
-		sed -i 's#-I/usr/include/slang#-I=/usr/include/slang#g' $kerneldir/tools/perf/Makefile
+		cp -fR arch/${ARCH}/include/generated/* $kerneldir/arch/${ARCH}/include/generated/
 	fi
 }
-do_install[prefuncs] += "package_get_auto_pr"
 
-python sysroot_stage_all () {
-    oe.path.copyhardlinktree(d.expand("${D}${KERNEL_SRC_PATH}"), d.expand("${SYSROOT_DESTDIR}${KERNEL_SRC_PATH}"))
+# We don't need to stage anything, not the modules/firmware since those would clash with linux-firmware
+sysroot_stage_all () {
+	:
 }
 
-KERNEL_CONFIG_COMMAND ?= "oe_runmake_call oldnoconfig || yes '' | oe_runmake oldconfig"
+KERNEL_CONFIG_COMMAND ?= "oe_runmake_call -C ${S} O=${B} oldnoconfig || yes '' | oe_runmake -C ${S} O=${B} oldconfig"
 
 kernel_do_configure() {
 	# fixes extra + in /lib/modules/2.6.37+
@@ -321,6 +336,10 @@ kernel_do_configure() {
 	# $ make kernelversion => 2.6.37
 	# $ make kernelrelease => 2.6.37+
 	touch ${B}/.scmversion ${S}/.scmversion
+
+	if [ "${S}" != "${B}" ] && [ -f "${S}/.config" ] && [ ! -f "${B}/.config" ]; then
+		mv "${S}/.config" "${B}/.config"
+	fi
 
 	# Copy defconfig to .config if .config does not exist. This allows
 	# recipes to manage the .config themselves in do_configure_prepend().
@@ -331,7 +350,7 @@ kernel_do_configure() {
 }
 
 do_savedefconfig() {
-	oe_runmake savedefconfig
+	oe_runmake -C ${B} savedefconfig
 }
 do_savedefconfig[nostamp] = "1"
 addtask savedefconfig after do_configure
@@ -346,7 +365,7 @@ PACKAGES = "kernel kernel-base kernel-vmlinux kernel-image kernel-dev kernel-mod
 FILES_${PN} = ""
 FILES_kernel-base = "/lib/modules/${KERNEL_VERSION}/modules.order /lib/modules/${KERNEL_VERSION}/modules.builtin"
 FILES_kernel-image = "/boot/${KERNEL_IMAGETYPE}*"
-FILES_kernel-dev = "/boot/System.map* /boot/Module.symvers* /boot/config* ${KERNEL_SRC_PATH}"
+FILES_kernel-dev = "/boot/System.map* /boot/Module.symvers* /boot/config* ${KERNEL_SRC_PATH} /lib/modules/${KERNEL_VERSION}/build"
 FILES_kernel-vmlinux = "/boot/vmlinux*"
 FILES_kernel-modules = ""
 RDEPENDS_kernel = "kernel-base"
@@ -354,6 +373,7 @@ RDEPENDS_kernel = "kernel-base"
 # not wanted in images as standard
 RDEPENDS_kernel-base ?= "kernel-image"
 PKG_kernel-image = "kernel-image-${@legitimize_package_name('${KERNEL_VERSION}')}"
+RDEPENDS_kernel-image += "${@base_conditional('KERNEL_IMAGETYPE', 'vmlinux', 'kernel-vmlinux', '', d)}"
 PKG_kernel-base = "kernel-${@legitimize_package_name('${KERNEL_VERSION}')}"
 RPROVIDES_kernel-base += "kernel-${KERNEL_VERSION}"
 ALLOW_EMPTY_kernel = "1"
@@ -384,14 +404,12 @@ pkg_postrm_kernel-image () {
 PACKAGESPLITFUNCS_prepend = "split_kernel_packages "
 
 python split_kernel_packages () {
-    do_split_packages(d, root='/lib/firmware', file_regex='^(.*)\.bin$', output_pattern='kernel-firmware-%s', description='Firmware for %s', recursive=True, extra_depends='')
-    do_split_packages(d, root='/lib/firmware', file_regex='^(.*)\.fw$', output_pattern='kernel-firmware-%s', description='Firmware for %s', recursive=True, extra_depends='')
-    do_split_packages(d, root='/lib/firmware', file_regex='^(.*)\.cis$', output_pattern='kernel-firmware-%s', description='Firmware for %s', recursive=True, extra_depends='')
+    do_split_packages(d, root='/lib/firmware', file_regex='^(.*)\.(bin|fw|cis|dsp)$', output_pattern='kernel-firmware-%s', description='Firmware for %s', recursive=True, extra_depends='')
 }
 
 do_strip() {
 	if [ -n "${KERNEL_IMAGE_STRIP_EXTRA_SECTIONS}" ]; then
-		if [[ "${KERNEL_IMAGETYPE}" != "vmlinux" ]]; then
+		if [ "${KERNEL_IMAGETYPE}" != "vmlinux" ]; then
 			bbwarn "image type will not be stripped (not supported): ${KERNEL_IMAGETYPE}"
 			return
 		fi
@@ -403,7 +421,7 @@ do_strip() {
 			  gawk '{print $1}'`
 
 		for str in ${KERNEL_IMAGE_STRIP_EXTRA_SECTIONS}; do {
-			if [[ "$headers" != *"$str"* ]]; then
+			if ! (echo "$headers" | grep -q "^$str$"); then
 				bbwarn "Section not found: $str";
 			fi
 
@@ -447,31 +465,6 @@ MODULE_TARBALL_BASE_NAME ?= "${MODULE_IMAGE_BASE_NAME}.tgz"
 MODULE_TARBALL_SYMLINK_NAME ?= "modules-${MACHINE}.tgz"
 MODULE_TARBALL_DEPLOY ?= "1"
 
-do_uboot_mkimage() {
-	if test "x${KERNEL_IMAGETYPE}" = "xuImage" ; then 
-		if test "x${KEEPUIMAGE}" != "xyes" ; then
-			ENTRYPOINT=${UBOOT_ENTRYPOINT}
-			if test -n "${UBOOT_ENTRYSYMBOL}"; then
-				ENTRYPOINT=`${HOST_PREFIX}nm ${S}/vmlinux | \
-					awk '$3=="${UBOOT_ENTRYSYMBOL}" {print $1}'`
-			fi
-			if test -e arch/${ARCH}/boot/compressed/vmlinux ; then
-				${OBJCOPY} -O binary -R .note -R .comment -S arch/${ARCH}/boot/compressed/vmlinux linux.bin
-				uboot-mkimage -A ${UBOOT_ARCH} -O linux -T kernel -C none -a ${UBOOT_LOADADDRESS} -e $ENTRYPOINT -n "${DISTRO_NAME}/${PV}/${MACHINE}" -d linux.bin arch/${ARCH}/boot/uImage
-				rm -f linux.bin
-			else
-				${OBJCOPY} -O binary -R .note -R .comment -S vmlinux linux.bin
-				rm -f linux.bin.gz
-				gzip -9 linux.bin
-				uboot-mkimage -A ${UBOOT_ARCH} -O linux -T kernel -C gzip -a ${UBOOT_LOADADDRESS} -e $ENTRYPOINT -n "${DISTRO_NAME}/${PV}/${MACHINE}" -d linux.bin.gz arch/${ARCH}/boot/uImage
-				rm -f linux.bin.gz
-			fi
-		fi
-	fi
-}
-
-addtask uboot_mkimage before do_install after do_compile
-
 kernel_do_deploy() {
 	install -m 0644 ${KERNEL_OUTPUT} ${DEPLOYDIR}/${KERNEL_IMAGE_BASE_NAME}.bin
 	if [ ${MODULE_TARBALL_DEPLOY} = "1" ] && (grep -q -i -e '^CONFIG_MODULES=y$' .config); then
@@ -499,7 +492,7 @@ kernel_do_deploy() {
 do_deploy[dirs] = "${DEPLOYDIR} ${B}"
 do_deploy[prefuncs] += "package_get_auto_pr"
 
-addtask deploy before do_build after do_install
+addtask deploy after do_populate_sysroot
 
 EXPORT_FUNCTIONS do_deploy
 

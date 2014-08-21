@@ -185,7 +185,7 @@ python write_specfile () {
                 if not len(depends_dict[dep]):
                     array.append("%s: %s" % (tag, dep))
 
-    def walk_files(walkpath, target, conffiles):
+    def walk_files(walkpath, target, conffiles, dirfiles):
         # We can race against the ipk/deb backends which create CONTROL or DEBIAN directories
         # when packaging. We just ignore these files which are created in 
         # packages-split/ and not package/
@@ -196,14 +196,40 @@ python write_specfile () {
             path = rootpath.replace(walkpath, "")
             if path.endswith("DEBIAN") or path.endswith("CONTROL"):
                 continue
-            for dir in dirs:
-                if dir == "CONTROL" or dir == "DEBIAN":
-                    continue
-                # All packages own the directories their files are in...
-                target.append('%dir "' + path + '/' + dir + '"')
+            path = path.replace("%", "%%%%%%%%")
+
+            # Treat all symlinks to directories as normal files.
+            # os.walk() lists them as directories.
+            def move_to_files(dir):
+                if os.path.islink(os.path.join(rootpath, dir)):
+                    files.append(dir)
+                    return True
+                else:
+                    return False
+            dirs[:] = [dir for dir in dirs if not move_to_files(dir)]
+
+            # Directory handling can happen in two ways, either DIRFILES is not set at all
+            # in which case we fall back to the older behaviour of packages owning all their
+            # directories
+            if dirfiles is None:
+                for dir in dirs:
+                    if dir == "CONTROL" or dir == "DEBIAN":
+                        continue
+                    dir = dir.replace("%", "%%%%%%%%")
+                    # All packages own the directories their files are in...
+                    target.append('%dir "' + path + '/' + dir + '"')
+            else:
+                # packages own only empty directories or explict directory.
+                # This will prevent the overlapping of security permission.
+                if path and not files and not dirs:
+                    target.append('%dir "' + path + '"')
+                elif path and path in dirfiles:
+                    target.append('%dir "' + path + '"')
+
             for file in files:
                 if file == "CONTROL" or file == "DEBIAN":
                     continue
+                file = file.replace("%", "%%%%%%%%")
                 if conffiles.count(path + '/' + file):
                     target.append('%config "' + path + '/' + file + '"')
                 else:
@@ -293,6 +319,7 @@ python write_specfile () {
     spec_files_bottom = []
 
     perfiledeps = (d.getVar("MERGEPERFILEDEPS", True) or "0") == "0"
+    extra_pkgdata = (d.getVar("RPM_EXTRA_PKGDATA", True) or "0") == "1"
 
     for pkg in packages.split():
         localdata = bb.data.createCopy(d)
@@ -306,11 +333,14 @@ python write_specfile () {
             pkgname = pkg
         localdata.setVar('PKG', pkgname)
 
-        localdata.setVar('OVERRIDES', pkg)
+        localdata.setVar('OVERRIDES', d.getVar("OVERRIDES", False) + ":" + pkg)
 
         bb.data.update_data(localdata)
 
-        conffiles = (localdata.getVar('CONFFILES', True) or "").split()
+        conffiles = get_conffiles(pkg, d)
+        dirfiles = localdata.getVar('DIRFILES', True)
+        if dirfiles is not None:
+            dirfiles = dirfiles.split()
 
         splitname    = strip_multilib(pkgname, d)
 
@@ -367,12 +397,14 @@ python write_specfile () {
             srcrpostrm     = splitrpostrm
 
             file_list = []
-            walk_files(root, file_list, conffiles)
-            if not file_list and localdata.getVar('ALLOW_EMPTY') != "1":
+            walk_files(root, file_list, conffiles, dirfiles)
+            if not file_list and localdata.getVar('ALLOW_EMPTY', False) != "1":
                 bb.note("Not creating empty RPM package for %s" % splitname)
             else:
                 bb.note("Creating RPM package for %s" % splitname)
                 spec_files_top.append('%files')
+                if extra_pkgdata:
+                    package_rpm_extra_pkgdata(splitname, spec_files_top, localdata)
                 spec_files_top.append('%defattr(-,-,-,-)')
                 if file_list:
                     bb.note("Creating RPM package for %s" % splitname)
@@ -474,11 +506,13 @@ python write_specfile () {
 
         # Now process files
         file_list = []
-        walk_files(root, file_list, conffiles)
-        if not file_list and localdata.getVar('ALLOW_EMPTY') != "1":
+        walk_files(root, file_list, conffiles, dirfiles)
+        if not file_list and localdata.getVar('ALLOW_EMPTY', False) != "1":
             bb.note("Not creating empty RPM package for %s" % splitname)
         else:
             spec_files_bottom.append('%%files -n %s' % splitname)
+            if extra_pkgdata:
+                package_rpm_extra_pkgdata(splitname, spec_files_bottom, localdata)
             spec_files_bottom.append('%defattr(-,-,-,-)')
             if file_list:
                 bb.note("Creating RPM package for %s" % splitname)
@@ -611,6 +645,8 @@ python write_specfile () {
 
     specfile.close()
 }
+# Otherwise allarch packages may change depending on override configuration
+write_specfile[vardepsexclude] = "OVERRIDES"
 
 python do_package_rpm () {
     # We need a simple way to remove the MLPREFIX from the package name,
@@ -661,6 +697,8 @@ python do_package_rpm () {
     else:
         d.setVar('PACKAGE_ARCH_EXTEND', package_arch)
     pkgwritedir = d.expand('${PKGWRITEDIRRPM}/${PACKAGE_ARCH_EXTEND}')
+    d.setVar('RPM_PKGWRITEDIR', pkgwritedir)
+    bb.debug(1, 'PKGWRITEDIR: %s' % d.getVar('RPM_PKGWRITEDIR', True))
     pkgarch = d.expand('${PACKAGE_ARCH_EXTEND}${HOST_VENDOR}-${HOST_OS}')
     magicfile = d.expand('${STAGING_DIR_NATIVE}${datadir_native}/misc/magic.mgc')
     bb.utils.mkdirhier(pkgwritedir)
@@ -669,6 +707,7 @@ python do_package_rpm () {
     cmd = rpmbuild
     cmd = cmd + " --nodeps --short-circuit --target " + pkgarch + " --buildroot " + pkgd
     cmd = cmd + " --define '_topdir " + workdir + "' --define '_rpmdir " + pkgwritedir + "'"
+    cmd = cmd + " --define '_builddir " + d.getVar('S', True) + "'"
     cmd = cmd + " --define '_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm'"
     cmd = cmd + " --define '_use_internal_dependency_generator 0'"
     if perfiledeps:
@@ -695,13 +734,16 @@ python do_package_rpm () {
     d.setVar('BUILDSPEC', cmd + "\n")
     d.setVarFlag('BUILDSPEC', 'func', '1')
     bb.build.exec_func('BUILDSPEC', d)
+
+    if d.getVar('RPM_SIGN_PACKAGES', True) == '1':
+        bb.build.exec_func("sign_rpm", d)
 }
 
 python () {
     if d.getVar('PACKAGES', True) != '':
         deps = ' rpm-native:do_populate_sysroot virtual/fakeroot-native:do_populate_sysroot'
         d.appendVarFlag('do_package_write_rpm', 'depends', deps)
-        d.setVarFlag('do_package_write_rpm', 'fakeroot', 1)
+        d.setVarFlag('do_package_write_rpm', 'fakeroot', '1')
 }
 
 SSTATETASKS += "do_package_write_rpm"

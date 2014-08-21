@@ -204,7 +204,7 @@ python package_do_split_gconvs () {
 
     do_split_packages(d, locales_dir, file_regex='(.*)', output_pattern=bpn+'-localedata-%s', \
         description='locale definition for %s', hook=calc_locale_deps, extra_depends='')
-    d.setVar('PACKAGES', d.getVar('PACKAGES') + ' ' + d.getVar('MLPREFIX') + bpn + '-gconv')
+    d.setVar('PACKAGES', d.getVar('PACKAGES', False) + ' ' + d.getVar('MLPREFIX', False) + bpn + '-gconv')
 
     use_bin = d.getVar("GLIBC_INTERNAL_USE_BINARY_LOCALE", True)
 
@@ -236,8 +236,8 @@ python package_do_split_gconvs () {
                 supported[locale] = charset
 
     def output_locale_source(name, pkgname, locale, encoding):
-        d.setVar('RDEPENDS_%s' % pkgname, 'localedef %s-localedata-%s %s-charmap-%s' % \
-        (mlprefix+bpn, legitimize_package_name(locale), mlprefix+bpn, legitimize_package_name(encoding)))
+        d.setVar('RDEPENDS_%s' % pkgname, '%slocaledef %s-localedata-%s %s-charmap-%s' % \
+        (mlprefix, mlprefix+bpn, legitimize_package_name(locale), mlprefix+bpn, legitimize_package_name(encoding)))
         d.setVar('pkg_postinst_%s' % pkgname, d.getVar('locale_base_postinst', True) \
         % (locale, encoding, locale))
         d.setVar('pkg_postrm_%s' % pkgname, d.getVar('locale_base_postrm', True) % \
@@ -268,6 +268,7 @@ python package_do_split_gconvs () {
             locale_arch_options = { \
                 "arm":     " --uint32-align=4 --little-endian ", \
                 "armeb":   " --uint32-align=4 --big-endian ",    \
+                "aarch64": " --uint32-align=4 --little-endian ",    \
                 "aarch64_be": " --uint32-align=4 --big-endian ",    \
                 "sh4":     " --uint32-align=4 --big-endian ",    \
                 "powerpc": " --uint32-align=4 --big-endian ",    \
@@ -298,9 +299,7 @@ python package_do_split_gconvs () {
                 --inputfile=%s/i18n/locales/%s --charmap=%s %s" \
                 % (treedir, datadir, locale, encoding, name)
 
-            qemu_options = d.getVar("QEMU_OPTIONS_%s" % d.getVar('PACKAGE_ARCH', True), True)
-            if not qemu_options:
-                qemu_options = d.getVar('QEMU_OPTIONS', True)
+            qemu_options = d.getVar('QEMU_OPTIONS', True)
 
             cmd = "PSEUDO_RELOADED=YES PATH=\"%s\" I18NPATH=\"%s\" %s -L %s \
                 -E LD_LIBRARY_PATH=%s %s %s/bin/localedef %s" % \
@@ -311,7 +310,7 @@ python package_do_split_gconvs () {
         bb.note("generating locale %s (%s)" % (locale, encoding))
 
     def output_locale(name, locale, encoding):
-        pkgname = d.getVar('MLPREFIX') + 'locale-base-' + legitimize_package_name(name)
+        pkgname = d.getVar('MLPREFIX', False) + 'locale-base-' + legitimize_package_name(name)
         d.setVar('ALLOW_EMPTY_%s' % pkgname, '1')
         d.setVar('PACKAGES', '%s %s' % (pkgname, d.getVar('PACKAGES', True)))
         rprovides = ' %svirtual-locale-%s' % (mlprefix, legitimize_package_name(name))
@@ -364,8 +363,7 @@ python package_do_split_gconvs () {
             m.write(cmd + ":\n")
             m.write("\t" + commands[cmd] + "\n\n")
         m.close()
-        d.setVar("B", os.path.dirname(makefile))
-        d.setVar("EXTRA_OEMAKE", "${PARALLEL_MAKE}")
+        d.setVar("EXTRA_OEMAKE", "-C %s ${PARALLEL_MAKE}" % (os.path.dirname(makefile)))
         bb.note("Executing binary locale generation makefile")
         bb.build.exec_func("oe_runmake", d)
         bb.note("collecting binary locales from locale tree")

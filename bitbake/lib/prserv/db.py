@@ -15,10 +15,21 @@ sqlversion = sqlite3.sqlite_version_info
 if sqlversion[0] < 3 or (sqlversion[0] == 3 and sqlversion[1] < 3):
     raise Exception("sqlite3 version 3.3.0 or later is required.")
 
+#
+# "No History" mode - for a given query tuple (version, pkgarch, checksum),
+# the returned value will be the largest among all the values of the same
+# (version, pkgarch). This means the PR value returned can NOT be decremented.
+#
+# "History" mode - Return a new higher value for previously unseen query
+# tuple (version, pkgarch, checksum), otherwise return historical value.
+# Value can decrement if returning to a previous build.
+#
+
 class PRTable(object):
     def __init__(self, conn, table, nohist):
         self.conn = conn
         self.nohist = nohist
+        self.dirty = False
         if nohist:
             self.table = "%s_nohist" % table 
         else:
@@ -47,6 +58,11 @@ class PRTable(object):
         self.conn.commit()
         self._execute("BEGIN EXCLUSIVE TRANSACTION")
 
+    def sync_if_dirty(self):
+        if self.dirty:
+            self.sync()
+            self.dirty = False
+
     def _getValueHist(self, version, pkgarch, checksum):
         data=self._execute("SELECT value FROM %s WHERE version=? AND pkgarch=? AND checksum=?;" % self.table,
                            (version, pkgarch, checksum))
@@ -61,6 +77,8 @@ class PRTable(object):
                            (version,pkgarch, checksum,version, pkgarch))
             except sqlite3.IntegrityError as exc:
                 logger.error(str(exc))
+
+            self.dirty = True
 
             data=self._execute("SELECT value FROM %s WHERE version=? AND pkgarch=? AND checksum=?;" % self.table,
                                (version, pkgarch, checksum))
@@ -88,6 +106,8 @@ class PRTable(object):
             except sqlite3.IntegrityError as exc:
                 logger.error(str(exc))
                 self.conn.rollback()
+
+            self.dirty = True
 
             data=self._execute("SELECT value FROM %s WHERE version=? AND pkgarch=? AND checksum=?;" % self.table,
                                (version, pkgarch, checksum))
@@ -118,6 +138,8 @@ class PRTable(object):
             except sqlite3.IntegrityError as exc:
                 logger.error(str(exc))
 
+            self.dirty = True
+
             data = self._execute("SELECT value FROM %s WHERE version=? AND pkgarch=? AND checksum=?;" % self.table,
                            (version, pkgarch, checksum))
             row = data.fetchone()
@@ -138,6 +160,8 @@ class PRTable(object):
                                (value,version,pkgarch,checksum,value))
             except sqlite3.IntegrityError as exc:
                 logger.error(str(exc))
+
+        self.dirty = True
 
         data = self._execute("SELECT value FROM %s WHERE version=? AND pkgarch=? AND checksum=? AND value>=?;" % self.table,
                             (version,pkgarch,checksum,value))
@@ -221,9 +245,10 @@ class PRData(object):
         self.connection=sqlite3.connect(self.filename, isolation_level="EXCLUSIVE", check_same_thread = False)
         self.connection.row_factory=sqlite3.Row
         self.connection.execute("pragma synchronous = off;")
+        self.connection.execute("PRAGMA journal_mode = WAL;")
         self._tables={}
 
-    def __del__(self):
+    def disconnect(self):
         self.connection.close()
 
     def __getitem__(self,tblname):

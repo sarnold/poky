@@ -1,4 +1,4 @@
-#!/usr/bin/python -tt
+#!/usr/bin/env python -tt
 #
 # Copyright (c) 2011 Intel, Inc.
 #
@@ -15,10 +15,7 @@
 # with this program; if not, write to the Free Software Foundation, Inc., 59
 # Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-import os
-import shutil
 from wic import msger
-from wic.utils import errors
 
 class _Plugin(object):
     class __metaclass__(type):
@@ -54,7 +51,7 @@ class SourcePlugin(_Plugin):
     """
 
     @classmethod
-    def do_install_disk(self, disk, disk_name, cr, workdir, oe_builddir,
+    def do_install_disk(cls, disk, disk_name, creator, workdir, oe_builddir,
                         bootimg_dir, kernel_dir, native_sysroot):
         """
         Called after all partitions have been prepared and assembled into a
@@ -64,8 +61,9 @@ class SourcePlugin(_Plugin):
         msger.debug("SourcePlugin: do_install_disk: disk: %s" % disk_name)
 
     @classmethod
-    def do_stage_partition(self, part, cr, workdir, oe_builddir, bootimg_dir,
-                           kernel_dir, native_sysroot):
+    def do_stage_partition(cls, part, source_params, creator, cr_workdir,
+                           oe_builddir, bootimg_dir, kernel_dir,
+                           native_sysroot):
         """
         Special content staging hook called before do_prepare_partition(),
         normally empty.
@@ -80,8 +78,9 @@ class SourcePlugin(_Plugin):
         msger.debug("SourcePlugin: do_stage_partition: part: %s" % part)
 
     @classmethod
-    def do_configure_partition(self, part, cr, cr_workdir, oe_builddir,
-                               bootimg_dir, kernel_dir, native_sysroot):
+    def do_configure_partition(cls, part, source_params, creator, cr_workdir,
+                               oe_builddir, bootimg_dir, kernel_dir,
+                               native_sysroot):
         """
         Called before do_prepare_partition(), typically used to create
         custom configuration files for a partition, for example
@@ -90,8 +89,9 @@ class SourcePlugin(_Plugin):
         msger.debug("SourcePlugin: do_configure_partition: part: %s" % part)
 
     @classmethod
-    def do_prepare_partition(self, part, cr, cr_workdir, oe_builddir, bootimg_dir,
-                             kernel_dir, rootfs_dir, native_sysroot):
+    def do_prepare_partition(cls, part, source_params, creator, cr_workdir,
+                             oe_builddir, bootimg_dir, kernel_dir, rootfs_dir,
+                             native_sysroot):
         """
         Called to do the actual content population for a partition i.e. it
         'prepares' the partition to be incorporated into the image.
@@ -99,9 +99,9 @@ class SourcePlugin(_Plugin):
         msger.debug("SourcePlugin: do_prepare_partition: part: %s" % part)
 
 def get_plugins(typen):
-    ps = ImagerPlugin.get_plugins()
-    if typen in ps:
-        return ps[typen]
+    plugins = ImagerPlugin.get_plugins()
+    if typen in plugins:
+        return plugins[typen]
     else:
         return None
 

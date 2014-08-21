@@ -169,7 +169,7 @@
             <filename>packagegroup-core-x11-sato</filename>,
             which in turn leads to recipes like <filename>matchbox-terminal</filename>,
             <filename>pcmanfm</filename> and <filename>gthumb</filename>.
-            These recipes in turn depend on <filename>eglibc</filename> and the toolchain.
+            These recipes in turn depend on <filename>glibc</filename> and the toolchain.
         </para>
 
         <para>
@@ -255,7 +255,7 @@
             It is worth noting that you can greatly speed up the build time by properly setting
             the <filename>BB_NUMBER_THREADS</filename> variable.
             See the
-            "<ulink url='&YOCTO_DOCS_QS_URL;#building-image'>Building an Image</ulink>"
+            "<ulink url='&YOCTO_DOCS_QS_URL;#qs-building-images'>Building Images</ulink>"
             section in the Yocto Project Quick Start for more information.
         </para>
 

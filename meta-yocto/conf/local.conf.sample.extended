@@ -25,8 +25,8 @@
 # be appropriate for example.
 
 
-# eglibc configurability is used to reduce minimal image's size.
-# the all supported eglibc options are listed in DISTRO_FEATURES_LIBC
+# glibc configurability is used to reduce minimal image's size.
+# the all supported glibc options are listed in DISTRO_FEATURES_LIBC
 # and disabled by default. Uncomment and copy the DISTRO_FEATURES_LIBC
 # and DISTRO_FEATURES definitions to local.conf to enable the options.
 #DISTRO_FEATURES_LIBC = "ipv6 libc-backtrace libc-big-macros libc-bsd libc-cxx-tests libc-catgets libc-charsets libc-crypt \
@@ -145,12 +145,12 @@
 #MULTILIBS = "multilib:lib32"
 #DEFAULTTUNE_virtclass-multilib-lib32 = "x86"
 
-# Set RPM_PREFER_COLOR to configure preferred ABI when using rpm packaging
+# Set RPM_PREFER_ELF_ARCH to configure preferred ABI when using rpm packaging
 # backend to generate a rootfs, choices are:
 # 1: ELF32 wins
 # 2: ELF64 wins
-# 3: ELF64 N32 wins (for mips64 or mips64el only)
-#RPM_PREFER_COLOR ?= "2"
+# 4: ELF64 N32 wins (for mips64 or mips64el only)
+#RPM_PREFER_ELF_ARCH ?= "2"
 
 # The network based PR service host and port
 # Uncomment the following lines to enable PRservice.
@@ -164,6 +164,15 @@
 # The following is a list of classes to import to use in the generation of images
 # currently an example class is image_types_uboot
 # IMAGE_CLASSES = " image_types_uboot"
+
+# The following options will build a companion 'debug filesystem' in addition
+# to the normal deployable filesystem.  This companion system allows a
+# debugger to know the symbols and related sources.  It can be used to
+# debug a remote 'production' system without having to add the debug symbols
+# and sources to remote system.  If IMAGE_FSTYPES_DEBUGFS is not defined, it
+# defaults to IMAGE_FSTYPES.
+#IMAGE_GEN_DEBUGFS = "1"
+#IMAGE_FSTYPES_DEBUGFS = "tar.gz"
 
 # Incremental rpm image generation, the rootfs would be totally removed
 # and re-created in the second generation by default, but with
@@ -361,3 +370,14 @@
 # feed layout is used where package files are placed in <outdir>/<arch>/.
 #
 #IPK_HIERARCHICAL_FEED = "1"
+#
+
+# Using RPM4
+#
+# Currently the rootfs_rpm code has a hard depends on rpmresolve:do_populate_sysroot,
+# when using rpm4 the rpmresolve code will not compile due to a missing header file.
+# That dependency needs to be removed when using RPM4, also the PREFRRED_VERSION needs
+# to be set. This example shows how to enable rpm4
+# PREFERRED_VERSION_rpm = "4.11.2"
+# PREFERRED_VERSION_rpm-native = "4.11.2"
+# RPMROOTFSDEPENDS_remove = "rpmresolve-native:do_populate_sysroot"

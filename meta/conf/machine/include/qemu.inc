@@ -5,7 +5,7 @@ PREFERRED_PROVIDER_virtual/libgles1 ?= "mesa"
 PREFERRED_PROVIDER_virtual/libgles2 ?= "mesa"
 
 XSERVER ?= "xserver-xorg \
-            ${@bb.utils.contains('DISTRO_FEATURES', 'opengl', 'mesa-driver-swrast', '', d)} \
+            ${@bb.utils.contains('DISTRO_FEATURES', 'opengl', 'mesa-driver-swrast xserver-xorg-extension-glx', '', d)} \
             xf86-input-evdev \
             xf86-input-mouse \
             xf86-video-fbdev \
@@ -15,7 +15,7 @@ MACHINE_FEATURES = "alsa bluetooth usbgadget screen"
 
 MACHINEOVERRIDES =. "qemuall:"
 
-IMAGE_FSTYPES += "tar.bz2 ext3"
+IMAGE_FSTYPES += "tar.bz2 ext4"
 
 # Don't include kernels in standard images
 RDEPENDS_kernel-base = ""

@@ -3,13 +3,14 @@ DESCRIPTION = "Qt is a versatile cross-platform application framework -- this is
 SECTION = "libs"
 HOMEPAGE = "http://qt-project.org/"
 DEPENDS += "directfb tslib"
-INC_PR = "r52"
 
 QT4EDEPENDS = ""
 QT_BASE_LIB  ?= "libqt-embedded"
 
 # Set necessary variables in the profile
-SRC_URI += "file://qte.sh"
+SRC_URI += "file://qte.sh \
+            file://0033-configure-support-c-0x-standard-for-directfd.patch \
+"
 
 QT_EMBEDDED_FLAGS ?= " \
     -embedded $QT_ARCH \

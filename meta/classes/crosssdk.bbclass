@@ -1,6 +1,7 @@
 inherit cross
 
 CLASSOVERRIDE = "class-crosssdk"
+MACHINEOVERRIDES = ""
 PACKAGE_ARCH = "${SDK_ARCH}"
 python () {
 	# set TUNE_PKGARCH to SDK_ARCH
@@ -29,7 +30,7 @@ baselib = "lib"
 do_populate_sysroot[stamp-extra-info] = ""
 do_packagedata[stamp-extra-info] = ""
 
-# Need to force this to ensure consitency accross architectures
-EXTRA_OECONF_FPU = ""
+# Need to force this to ensure consitency across architectures
+EXTRA_OECONF_GCC_FLOAT = ""
 
 USE_NLS = "no"

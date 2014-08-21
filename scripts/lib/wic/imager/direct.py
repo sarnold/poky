@@ -25,16 +25,16 @@
 #
 
 import os
-import stat
 import shutil
 
 from wic import kickstart, msger
-from wic.utils import fs_related, runner, misc
+from wic.utils import fs_related
+from wic.utils.oe.misc import get_bitbake_var
 from wic.utils.partitionedfs import Image
 from wic.utils.errors import CreatorError, ImageError
 from wic.imager.baseimager import BaseImageCreator
-from wic.utils.oe.misc import *
 from wic.plugin import pluginmgr
+from wic.utils.oe.misc import exec_cmd
 
 disk_methods = {
     "do_install_disk":None,
@@ -52,8 +52,7 @@ class DirectImageCreator(BaseImageCreator):
     """
 
     def __init__(self, oe_builddir, image_output_dir, rootfs_dir, bootimg_dir,
-                 kernel_dir, native_sysroot, hdddir, staging_data_dir,
-                 creatoropts=None):
+                 kernel_dir, native_sysroot, compressor, creatoropts=None):
         """
         Initialize a DirectImageCreator instance.
 
@@ -65,7 +64,7 @@ class DirectImageCreator(BaseImageCreator):
         self.__disks = {}
         self.__disk_format = "direct"
         self._disk_names = []
-        self._ptable_format = self.ks.handler.bootloader.ptable
+        self.ptable_format = self.ks.handler.bootloader.ptable
 
         self.oe_builddir = oe_builddir
         if image_output_dir:
@@ -74,73 +73,68 @@ class DirectImageCreator(BaseImageCreator):
         self.bootimg_dir = bootimg_dir
         self.kernel_dir = kernel_dir
         self.native_sysroot = native_sysroot
-        self.hdddir = hdddir
-        self.staging_data_dir = staging_data_dir
+        self.compressor = compressor
 
-    def __write_fstab(self, image_rootfs):
+    def __get_part_num(self, num, parts):
+        """calculate the real partition number, accounting for partitions not
+        in the partition table and logical partitions
+        """
+        realnum = 0
+        for pnum, part in enumerate(parts, 1):
+            if not part.no_table:
+                realnum += 1
+            if pnum == num:
+                if  part.no_table:
+                    return 0
+                if self.ptable_format == 'msdos' and realnum > 3:
+                    # account for logical partition numbering, ex. sda5..
+                    return realnum + 1
+                return realnum
+
+    def _write_fstab(self, image_rootfs):
         """overriden to generate fstab (temporarily) in rootfs. This is called
         from _create, make sure it doesn't get called from
         BaseImage.create()
         """
-        if image_rootfs is None:
-            return None
+        if not image_rootfs:
+            return
 
-        fstab = image_rootfs + "/etc/fstab"
-        if not os.path.isfile(fstab):
-            return None
+        fstab_path = image_rootfs + "/etc/fstab"
+        if not os.path.isfile(fstab_path):
+            return
 
-        parts = self._get_parts()
+        with open(fstab_path) as fstab:
+            fstab_lines = fstab.readlines()
 
-        self._save_fstab(fstab)
-        fstab_lines = self._get_fstab(fstab, parts)
-        self._update_fstab(fstab_lines, parts)
-        self._write_fstab(fstab, fstab_lines)
+        if self._update_fstab(fstab_lines, self._get_parts()):
+            shutil.copyfile(fstab_path, fstab_path + ".orig")
 
-        return fstab
+            with open(fstab_path, "w") as fstab:
+                fstab.writelines(fstab_lines)
+
+            return fstab_path
 
     def _update_fstab(self, fstab_lines, parts):
         """Assume partition order same as in wks"""
-        for num, p in enumerate(parts, 1):
-            if not p.mountpoint or p.mountpoint == "/" or p.mountpoint == "/boot":
+        updated = False
+        for num, part in enumerate(parts, 1):
+            pnum = self.__get_part_num(num, parts)
+            if not pnum or not part.mountpoint \
+               or part.mountpoint in ("/", "/boot"):
                 continue
-            if self._ptable_format == 'msdos' and num > 3:
-                device_name = "/dev/" + p.disk + str(num + 1)
-            else:
-                device_name = "/dev/" + p.disk + str(num)
 
-            opts = "defaults"
-            if p.fsopts:
-                opts = p.fsopts
+            # mmc device partitions are named mmcblk0p1, mmcblk0p2..
+            prefix = 'p' if  part.disk.startswith('mmcblk') else ''
+            device_name = "/dev/%s%s%d" % (part.disk, prefix, pnum)
 
-            fstab_entry = device_name + "\t" + \
-                          p.mountpoint + "\t" + \
-                          p.fstype + "\t" + \
-                          opts + "\t0\t0\n"
-            fstab_lines.append(fstab_entry)
+            opts = part.fsopts if part.fsopts else "defaults"
+            line = "\t".join([device_name, part.mountpoint, part.fstype,
+                              opts, "0", "0"]) + "\n"
 
-    def _write_fstab(self, fstab, fstab_lines):
-        fstab = open(fstab, "w")
-        for line in fstab_lines:
-            fstab.write(line)
-        fstab.close()
+            fstab_lines.append(line)
+            updated = True
 
-    def _save_fstab(self, fstab):
-        """Save the current fstab in rootfs"""
-        shutil.copyfile(fstab, fstab + ".orig")
-
-    def _restore_fstab(self, fstab):
-        """Restore the saved fstab in rootfs"""
-        if fstab is None:
-            return
-        shutil.move(fstab + ".orig", fstab)
-
-    def _get_fstab(self, fstab, parts):
-        """Return the desired contents of /etc/fstab."""
-        f = open(fstab, "r")
-        fstab_contents = f.readlines()
-        f.close()
-
-        return fstab_contents
+        return updated
 
     def set_bootimg_dir(self, bootimg_dir):
         """
@@ -160,9 +154,9 @@ class DirectImageCreator(BaseImageCreator):
         if not self.ks.handler.partition.partitions:
             partstr = "part / --size 1900 --ondisk sda --fstype=ext3"
             args = partstr.split()
-            pd = self.ks.handler.partition.parse(args[1:])
-            if pd not in self.ks.handler.partition.partitions:
-                self.ks.handler.partition.partitions.append(pd)
+            part = self.ks.handler.partition.parse(args[1:])
+            if part not in self.ks.handler.partition.partitions:
+                self.ks.handler.partition.partitions.append(part)
 
         # partitions list from kickstart file
         return kickstart.get_partitions(self.ks)
@@ -186,8 +180,8 @@ class DirectImageCreator(BaseImageCreator):
 
             if parts[i].mountpoint and not parts[i].fstype:
                 raise CreatorError("Failed to create disks, no --fstype "
-                                    "specified for partition with mountpoint "
-                                    "'%s' in the ks file")
+                                   "specified for partition with mountpoint "
+                                   "'%s' in the ks file")
 
             self._disk_names.append(disk_name)
 
@@ -225,15 +219,29 @@ class DirectImageCreator(BaseImageCreator):
         """
         parts = self._get_parts()
 
-        self.__image = Image()
+        self.__image = Image(self.native_sysroot)
 
-        for p in parts:
+        for part in parts:
             # as a convenience, set source to the boot partition source
             # instead of forcing it to be set via bootloader --source
-            if not self.ks.handler.bootloader.source and p.mountpoint == "/boot":
-                self.ks.handler.bootloader.source = p.source
+            if not self.ks.handler.bootloader.source and part.mountpoint == "/boot":
+                self.ks.handler.bootloader.source = part.source
 
-        for p in parts:
+        fstab_path = self._write_fstab(self.rootfs_dir.get("ROOTFS_DIR"))
+
+        for part in parts:
+            # get rootfs size from bitbake variable if it's not set in .ks file
+            if not part.size:
+                # and if rootfs name is specified for the partition
+                image_name = part.get_rootfs()
+                if image_name:
+                    # Bitbake variable ROOTFS_SIZE is calculated in
+                    # Image._get_rootfs_size method from meta/lib/oe/image.py
+                    # using IMAGE_ROOTFS_SIZE, IMAGE_ROOTFS_ALIGNMENT,
+                    # IMAGE_OVERHEAD_FACTOR and IMAGE_ROOTFS_EXTRA_SPACE
+                    rsize_bb = get_bitbake_var('ROOTFS_SIZE', image_name)
+                    if rsize_bb:
+                        part.size = int(round(float(rsize_bb)))
             # need to create the filesystems in order to get their
             # sizes before we can add them and do the layout.
             # Image.create() actually calls __format_disks() to create
@@ -241,25 +249,27 @@ class DirectImageCreator(BaseImageCreator):
             # self.assemble() calls Image.assemble() which calls
             # __write_partitition() for each partition to dd the fs
             # into the partitions.
-            fstab = self.__write_fstab(self.rootfs_dir.get("ROOTFS_DIR"))
+            part.prepare(self, self.workdir, self.oe_builddir, self.rootfs_dir,
+                         self.bootimg_dir, self.kernel_dir, self.native_sysroot)
 
-            p.prepare(self, self.workdir, self.oe_builddir, self.rootfs_dir,
-                      self.bootimg_dir, self.kernel_dir, self.native_sysroot)
 
-            self._restore_fstab(fstab)
+            self.__image.add_partition(int(part.size),
+                                       part.disk,
+                                       part.mountpoint,
+                                       part.source_file,
+                                       part.fstype,
+                                       part.label,
+                                       fsopts=part.fsopts,
+                                       boot=part.active,
+                                       align=part.align,
+                                       no_table=part.no_table,
+                                       part_type=part.part_type,
+                                       uuid=part.uuid)
 
-            self.__image.add_partition(int(p.size),
-                                       p.disk,
-                                       p.mountpoint,
-                                       p.source_file,
-                                       p.fstype,
-                                       p.label,
-                                       fsopts = p.fsopts,
-                                       boot = p.active,
-                                       align = p.align,
-                                       part_type = p.part_type)
+        if fstab_path:
+            shutil.move(fstab_path + ".orig", fstab_path)
 
-        self.__image.layout_partitions(self._ptable_format)
+        self.__image.layout_partitions(self.ptable_format)
 
         self.__imgdir = self.workdir
         for disk_name, disk in self.__image.disks.items():
@@ -300,6 +310,13 @@ class DirectImageCreator(BaseImageCreator):
                                                         self.bootimg_dir,
                                                         self.kernel_dir,
                                                         self.native_sysroot)
+        # Compress the image
+        if self.compressor:
+            for disk_name, disk in self.__image.disks.items():
+                full_path = self._full_path(self.__imgdir, disk_name, "direct")
+                msger.debug("Compressing disk %s with %s" % \
+                            (disk_name, self.compressor))
+                exec_cmd("%s %s" % (self.compressor, full_path))
 
     def print_outimage_info(self):
         """
@@ -309,19 +326,23 @@ class DirectImageCreator(BaseImageCreator):
 
         parts = self._get_parts()
 
-        for disk_name, disk in self.__image.disks.items():
-            full_path = self._full_path(self.__imgdir, disk_name, "direct")
+        for disk_name in self.__image.disks:
+            extension = "direct" + {"gzip": ".gz",
+                                    "bzip2": ".bz2",
+                                    "xz": ".xz",
+                                    "": ""}.get(self.compressor)
+            full_path = self._full_path(self.__imgdir, disk_name, extension)
             msg += '  %s\n\n' % full_path
 
         msg += 'The following build artifacts were used to create the image(s):\n'
-        for p in parts:
-            if p.get_rootfs() is None:
+        for part in parts:
+            if part.get_rootfs() is None:
                 continue
-            if p.mountpoint == '/':
-                str = ':'
+            if part.mountpoint == '/':
+                suffix = ':'
             else:
-                str = '["%s"]:' % p.label
-            msg += '  ROOTFS_DIR%s%s\n' % (str.ljust(20), p.get_rootfs())
+                suffix = '["%s"]:' % (part.mountpoint or part.label)
+            msg += '  ROOTFS_DIR%s%s\n' % (suffix.ljust(20), part.get_rootfs())
 
         msg += '  BOOTIMG_DIR:                  %s\n' % self.bootimg_dir
         msg += '  KERNEL_DIR:                   %s\n' % self.kernel_dir
@@ -329,29 +350,23 @@ class DirectImageCreator(BaseImageCreator):
 
         msger.info(msg)
 
-    def _get_boot_config(self):
+    @property
+    def rootdev(self):
         """
-        Return the rootdev/root_part_uuid (if specified by
-        --part-type)
+        Get root device name to use as a 'root' parameter
+        in kernel command line.
 
         Assume partition order same as in wks
         """
-        rootdev = None
-        root_part_uuid = None
         parts = self._get_parts()
-        for num, p in enumerate(parts, 1):
-            if p.mountpoint == "/":
-                part = ''
-                if p.disk.startswith('mmcblk'):
-                    part = 'p'
-
-                if self._ptable_format == 'msdos' and num > 3:
-                    rootdev = "/dev/%s%s%-d" % (p.disk, part, num + 1)
+        for num, part in enumerate(parts, 1):
+            if part.mountpoint == "/":
+                if part.uuid:
+                    return "PARTUUID=%s" % part.uuid
                 else:
-                    rootdev = "/dev/%s%s%-d" % (p.disk, part, num)
-                root_part_uuid = p.part_type
-
-        return (rootdev, root_part_uuid)
+                    suffix = 'p' if part.disk.startswith('mmcblk') else ''
+                    pnum = self.__get_part_num(num, parts)
+                    return "/dev/%s%s%-d" % (part.disk, suffix, pnum)
 
     def _cleanup(self):
         if not self.__image is None:

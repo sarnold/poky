@@ -11,23 +11,23 @@ IMAGE_ROOTFS_EXTRA_SPACE_append = "${@bb.utils.contains("PACKAGE_INSTALL", "smar
 # Smart is python based, so be sure python-native is available to us.
 EXTRANATIVEPATH += "python-native"
 
-do_rootfs[depends] += "rpm-native:do_populate_sysroot"
-do_rootfs[depends] += "rpmresolve-native:do_populate_sysroot"
-do_rootfs[depends] += "python-smartpm-native:do_populate_sysroot"
+# opkg is needed for update-alternatives
+RPMROOTFSDEPENDS = "rpm-native:do_populate_sysroot \
+    rpmresolve-native:do_populate_sysroot \
+    python-smartpm-native:do_populate_sysroot \
+    createrepo-native:do_populate_sysroot \
+    opkg-native:do_populate_sysroot"
 
-# Needed for update-alternatives
-do_rootfs[depends] += "opkg-native:do_populate_sysroot"
-
-# Creating the repo info in do_rootfs
-do_rootfs[depends] += "createrepo-native:do_populate_sysroot"
+do_rootfs[depends] += "${RPMROOTFSDEPENDS}"
+do_populate_sdk[depends] += "${RPMROOTFSDEPENDS}"
 
 do_rootfs[recrdeptask] += "do_package_write_rpm"
-rootfs_rpm_do_rootfs[vardepsexclude] += "BUILDNAME"
 do_rootfs[vardeps] += "PACKAGE_FEED_URIS"
 
 # RPM doesn't work with multiple rootfs generation at once due to collisions in the use of files 
 # in ${DEPLOY_DIR_RPM}. This can be removed if package_update_index_rpm can be called concurrently
 do_rootfs[lockfiles] += "${DEPLOY_DIR_RPM}/rpm.lock"
+do_populate_sdk[lockfiles] += "${DEPLOY_DIR_RPM}/rpm.lock"
 
 python () {
     if d.getVar('BUILD_IMAGES_FROM_FEEDS', True):
@@ -40,3 +40,7 @@ python () {
         d.setVar('RPM_POSTPROCESS_COMMANDS', '')
 
 }
+# Smart is python based, so be sure python-native is available to us.
+EXTRANATIVEPATH += "python-native"
+
+rpmlibdir = "/var/lib/rpm"

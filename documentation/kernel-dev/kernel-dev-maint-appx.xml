@@ -30,9 +30,9 @@
             in the Yocto Project kernel in any clone of the Yocto Project kernel source repository
             Git tree.
             For example, the following command clones the Yocto Project baseline kernel that
-            branched off of <filename>linux.org</filename> version 3.4:
+            branched off of <filename>linux.org</filename> version 3.19:
             <literallayout class='monospaced'>
-     $ git clone git://git.yoctoproject.org/linux-yocto-3.4
+     $ git clone git://git.yoctoproject.org/linux-yocto-3.19
             </literallayout>
             For another example of how to set up a local Git repository of the Yocto Project
             kernel files, see the
@@ -43,9 +43,9 @@
             Once you have cloned the kernel Git repository on your local machine, you can
             switch to the <filename>meta</filename> branch within the repository.
             Here is an example that assumes the local Git repository for the kernel is in
-            a top-level directory named <filename>linux-yocto-3.4</filename>:
+            a top-level directory named <filename>linux-yocto-3.19</filename>:
             <literallayout class='monospaced'>
-     $ cd linux-yocto-3.4
+     $ cd linux-yocto-3.19
      $ git checkout -b meta origin/meta
             </literallayout>
             Once you have checked out and switched to the <filename>meta</filename> branch,
@@ -88,7 +88,7 @@
                     feature description in an <filename>.scc</filename> file
                     whose name follows this format:
                     <literallayout class='monospaced'>
-     &lt;bsp_name&gt;-&lt;kernel_type&gt;.scc
+     <replaceable>bsp_name</replaceable>-<replaceable>kernel_type</replaceable>.scc
                     </literallayout>
                 </para></listitem>
                 <listitem><para>Once located, the feature description is either compiled into a simple script
@@ -135,7 +135,7 @@
 
 <!--
         <para>
-            <emphasis>AR - Darrren Hart:</emphasis>  Some parts of this section
+            <emphasis>AR - Darren Hart:</emphasis>  Some parts of this section
             need to be in the
             "<link linkend='using-an-iterative-development-process'>Using an Iterative Development Process</link>"
             section.
@@ -157,7 +157,7 @@
             <listitem><para>A BSP build branch exists.
                 This branch has the following form:
                 <literallayout class='monospaced'>
-     &lt;kernel_type&gt;/&lt;bsp_name&gt;
+     <replaceable>kernel_type</replaceable>/<replaceable>bsp_name</replaceable>
                 </literallayout></para></listitem>
         </itemizedlist>
 
@@ -194,7 +194,7 @@
             <filename>${MACHINE}</filename> is the metadata name of the machine (BSP) and "kernel_type" is one
             of the Yocto Project supported kernel types (e.g. "standard"):
         <literallayout class='monospaced'>
-     linux-${MACHINE}-&lt;kernel_type&gt;-build
+     linux-${MACHINE}-<replaceable>kernel_type</replaceable>-build
         </literallayout>
         </para>
 

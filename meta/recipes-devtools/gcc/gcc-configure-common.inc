@@ -1,4 +1,5 @@
 require gcc-multilib-config.inc
+require gcc-shared-source.inc
 #
 # Build the list of lanaguages to build.
 #
@@ -24,49 +25,56 @@ OPTSPACE = '${@bb.utils.contains("SPECIAL_ARCH_LIST", "${TARGET_ARCH}", "", "--e
 EXTRA_OECONF_BASE ?= ""
 EXTRA_OECONF_PATHS ?= ""
 EXTRA_OECONF_INITIAL ?= ""
-EXTRA_OECONF_INTERMEDIATE ?= ""
 
 GCCMULTILIB ?= "--disable-multilib"
 GCCTHREADS ?= "posix"
 
-EXTRA_OECONF = "${@['--enable-clocale=generic', ''][d.getVar('USE_NLS', True) != 'no']} \
-                --with-gnu-ld \
-                --enable-shared \
-                --enable-languages=${LANGUAGES} \
-                --enable-threads=${GCCTHREADS} \
-                ${GCCMULTILIB} \
-                --enable-c99 \
-                --enable-long-long \
-                --enable-symvers=gnu \
-                --enable-libstdcxx-pch \
-                --program-prefix=${TARGET_PREFIX} \
-		--without-local-prefix \
-                ${OPTSPACE} \
-                ${EXTRA_OECONF_BASE} \
-                ${EXTRA_OECONF_FPU} \
-                ${EXTRA_OECONF_PATHS} \
-                ${@get_gcc_mips_plt_setting(bb, d)} \
-                ${@get_gcc_multiarch_setting(bb, d)}"
+EXTRA_OECONF = "\
+    ${@['--enable-clocale=generic', ''][d.getVar('USE_NLS', True) != 'no']} \
+    --with-gnu-ld \
+    --enable-shared \
+    --enable-languages=${LANGUAGES} \
+    --enable-threads=${GCCTHREADS} \
+    ${GCCMULTILIB} \
+    --enable-c99 \
+    --enable-long-long \
+    --enable-symvers=gnu \
+    --enable-libstdcxx-pch \
+    --program-prefix=${TARGET_PREFIX} \
+    --without-local-prefix \
+    ${OPTSPACE} \
+    ${EXTRA_OECONF_BASE} \
+    ${EXTRA_OECONF_GCC_FLOAT} \
+    ${EXTRA_OECONF_PATHS} \
+    ${@get_gcc_mips_plt_setting(bb, d)} \
+    ${@get_gcc_ppc_plt_settings(bb, d)} \
+    ${@get_long_double_setting(bb, d)} \
+    ${@get_gcc_multiarch_setting(bb, d)} \
+"
 
-export ac_cv_path_SED = 'sed'
 export gcc_cv_collect2_libs = 'none required'
 # We need to set gcc_cv_collect2_libs else there is cross-compilation badness
 # in the config.log files (which might not get generated until do_compile
 # hence being missed by the insane do_configure check).
 
 # Build uclibc compilers without cxa_atexit support
-EXTRA_OECONF_append_linux               = " --enable-__cxa_atexit"
-EXTRA_OECONF_append_libc-uclibc        = " --enable-__cxa_atexit"
+EXTRA_OECONF_append_linux = " --enable-__cxa_atexit"
+EXTRA_OECONF_append_libc-uclibc = " --enable-__cxa_atexit"
 
-EXTRA_OECONF_append_mips64    = " --with-abi=64 --with-arch-64=mips64 --with-tune-64=mips64"
-EXTRA_OECONF_append_mips64el    = " --with-abi=64 --with-arch-64=mips64 --with-tune-64=mips64"
+EXTRA_OECONF_append_mips64 = " --with-abi=64 --with-arch-64=mips64 --with-tune-64=mips64"
+EXTRA_OECONF_append_mips64el = " --with-abi=64 --with-arch-64=mips64 --with-tune-64=mips64"
+EXTRA_OECONF_append_mips64n32 = " --with-abi=64 --with-arch-64=mips64 --with-tune-64=mips64"
+EXTRA_OECONF_append_mips64eln32 = " --with-abi=64 --with-arch-64=mips64 --with-tune-64=mips64"
 
-EXTRA_OECONF_FPU ??= ""
+# ARMv6+ adds atomic instructions that affect the ABI in libraries built
+# with TUNE_CCARGS in gcc-runtime.  Make the compiler default to a
+# compatible architecture.  armv6 and armv7a cover the minimum tune
+# features used in OE.
+EXTRA_OECONF_append_armv6 = " --with-arch=armv6"
+EXTRA_OECONF_append_armv7a = " --with-arch=armv7-a"
+
+EXTRA_OECONF_GCC_FLOAT ??= ""
 CPPFLAGS = ""
-
-# powerpc needs this to comply with the ABI
-EXTRA_OECONF_append_powerpc = " --with-long-double-128"
-EXTRA_OECONF_append_powerpc64 = " --with-long-double-128"
 
 SYSTEMHEADERS = "${target_includedir}"
 SYSTEMLIBS = "${target_base_libdir}/"
@@ -86,16 +94,6 @@ do_configure_prepend () {
 _EOF
 	mv ${B}/gcc/defaults.h.new ${B}/gcc/defaults.h
 }
-
-python do_preconfigure () {
-    import subprocess
-    cmd = d.expand('PATH=${PATH} cd ${S} && gnu-configize')
-    subprocess.check_output(cmd, stderr=subprocess.STDOUT, shell=True)
-    # See 0044-gengtypes.patch, we need to regenerate this file
-    bb.utils.remove(d.expand("${S}/gcc/gengtype-lex.c"))
-}
-addtask do_preconfigure after do_patch before do_configure
-do_preconfigure[depends] += "gnu-config-native:do_populate_sysroot autoconf-native:do_populate_sysroot"
 
 do_configure () {
 	# Setup these vars for cross building only

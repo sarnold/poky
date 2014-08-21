@@ -15,9 +15,12 @@ LICENSE = "AGPL-3.0"
 VIRTUAL_NAME ?= "virtual/db"
 RCONFLICTS_${PN} = "db3"
 
+RECIPE_NO_UPDATE_REASON = "Updating to 6.1.x requires also updating rpm to 5.4.15"
+
 SRC_URI = "http://download.oracle.com/berkeley-db/db-${PV}.tar.gz"
 SRC_URI += "file://arm-thumb-mutex_db5.patch;patchdir=.. \
             file://fix-parallel-build.patch \
+            file://Makefile-let-libso_target-depend-on-bt_rec.patch \
            "
 
 SRC_URI[md5sum] = "ad28eb86ad3203b5422844db179c585b"
@@ -42,6 +45,7 @@ PROVIDES += "${VIRTUAL_NAME}"
 # persuades bitbake to go to the right place
 S = "${WORKDIR}/db-${PV}/dist"
 B = "${WORKDIR}/db-${PV}/build_unix"
+SPDX_S = "${WORKDIR}/db-${PV}"
 
 # The executables go in a separate package - typically there
 # is no need to install these unless doing real database

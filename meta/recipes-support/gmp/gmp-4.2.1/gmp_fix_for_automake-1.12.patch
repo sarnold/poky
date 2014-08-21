@@ -1,5 +1,3 @@
-Upstream-Status: Pending
-
 automake 1.12 has depricated automatic de-ANSI-fication support
 
 this patch avoids these kinds of errors:
@@ -9,6 +7,16 @@ this patch avoids these kinds of errors:
 
 Signed-Off-By: Nitin A Kamble <nitin.a.kamble@intel.com>
 2012/05/02
+
+
+This patch was removed in f181c6ce8b3 when gmp 4.2.1 was mistakenly
+dropped.
+
+Upstream is not interested in patches for ancient versions.
+
+Upstream-Status: Inappropriate
+Signed-off-by: Jussi Kukkonen <jussi.kukkonen@intel.com>
+
 
 Index: gmp-4.2.1/configure.in
 ===================================================================

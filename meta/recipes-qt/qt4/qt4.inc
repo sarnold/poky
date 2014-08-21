@@ -1,6 +1,6 @@
 inherit qmake_base
 
-DEPENDS += "qt4-tools-native freetype jpeg libpng zlib dbus openssl glib-2.0 gstreamer gst-plugins-base sqlite3 tiff icu"
+DEPENDS += "qt4-tools-native freetype jpeg libpng zlib dbus openssl glib-2.0 sqlite3 tiff icu"
 DEPENDS += "${@bb.utils.contains('DISTRO_FEATURES', 'pulseaudio', 'pulseaudio', '', d)}"
 
 require qt4_arch.inc
@@ -16,7 +16,7 @@ QT_GLFLAGS ?= ""
 QT_QT3SUPPORT ?= "-qt3support"
 QT_XML ?= "-xmlpatterns"
 QT_WEBKIT ?= "-webkit"
-QT_PHONON ?= "-phonon"
+QT_PHONON ?= "-no-phonon"
 QT_DBUS ?= "-qdbus"
 QT_MULTIMEDIA ?= "${@bb.utils.contains('DISTRO_FEATURES', 'pulseaudio', '-pulseaudio', '-no-pulseaudio', d)}"
  
@@ -25,6 +25,7 @@ QT_CONFIG_FLAGS += "-release -no-cups -reduce-relocations \
                     -system-libjpeg -system-libpng -system-libtiff -system-zlib \
                     -no-pch -stl -glib -icu \
                     -no-rpath -silent \
+		    -D USE_QTMULTIMEDIA=1 \
                     ${QT_DBUS} \
                     ${QT_QT3SUPPORT} \
                     ${QT_WEBKIT} \
@@ -134,7 +135,7 @@ FILES_${QT_BASE_NAME}-demos-doc = "${docdir}/${QT_DIR_NAME}/qch/qt.qch"
 RRECOMMENDS_${PN} = "${LIB_PACKAGES} ${OTHER_PACKAGES}"
 RRECOMMENDS_${PN}-dev = "${DEV_PACKAGES}"
 RRECOMMENDS_${PN}-dbg = "${DBG_PACKAGES}"
-RRECOMMENDS_${QT_BASE_LIB}core4_append_libc-glibc = " eglibc-gconv-utf-16"
+RRECOMMENDS_${QT_BASE_LIB}core4_append_libc-glibc = " glibc-gconv-utf-16"
 RRECOMMENDS_${QT_BASE_NAME}-demos += " \
             ${QT_BASE_NAME}-examples \
             ${QT_BASE_NAME}-plugin-sqldriver-sqlite \
@@ -302,7 +303,7 @@ python populate_packages_prepend() {
         do_split_packages(d, plugin_dir, glob, plugin_name, '${PN} %s for %%s' % name, extra_depends='', hook=dev_hook)
         # Create a -dbg package as well
         plugin_dir_dbg = d.expand('${libdir}/${QT_DIR_NAME}/plugins/%s/.debug' % path)
-        packages = d.getVar('PACKAGES')
+        packages = d.getVar('PACKAGES', False)
         for (file,package) in dev_packages:
             packages = "%s %s-dbg" % (packages, package)
             file_name = os.path.join(plugin_dir_dbg, os.path.basename(file))
@@ -348,9 +349,6 @@ do_install() {
 			-e 's#-L\.\./\.\./WebCore/release\s\+-L\.\./\.\./JavaScriptCore/release\s\+-lwebcore##g' \
 			-e 's#-ljscore##g' \
 			${D}${libdir}/*.la ${D}${libdir}/*.prl ${D}${libdir}/pkgconfig/*.pc
-
-	sed -i -e s#" -Wl,-rpath-link,${S}/lib"##g \
-			${D}${datadir}/${QT_DIR_NAME}/mkspecs/common/linux.conf
 
 	# fix pkgconfig files
 	sed -i -e s#"moc_location=.*$"#"moc_location=${bindir}/moc4"# \

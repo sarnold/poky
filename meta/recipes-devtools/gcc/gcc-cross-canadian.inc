@@ -9,15 +9,17 @@ GCCMULTILIB = "--enable-multilib"
 
 require gcc-configure-common.inc
 
-EXTRA_OECONF_PATHS = "--with-gxx-include-dir=${SDKPATH}/sysroots/${TUNE_PKGARCH}${TARGET_VENDOR}-${TARGET_OS}${target_includedir}/c++/${BINV} \
-                      --with-build-time-tools=${STAGING_DIR_NATIVE}${prefix_native}/${TARGET_SYS}/bin \
-                      --with-sysroot=${SDKPATH}/sysroots/${TUNE_PKGARCH}${TARGET_VENDOR}-${TARGET_OS} \
-                      --with-build-sysroot=${STAGING_DIR_TARGET}"
+EXTRA_OECONF_PATHS = "\
+    --with-gxx-include-dir=/not/exist${target_includedir}/c++/${BINV} \
+    --with-build-time-tools=${STAGING_DIR_NATIVE}${prefix_native}/${TARGET_SYS}/bin \
+    --with-sysroot=/not/exist \
+    --with-build-sysroot=${STAGING_DIR_TARGET} \
+"
 # We have to point gcc at a sysroot but we don't need to rebuild if this changes
 # e.g. we switch between different machines with different tunes.
 EXTRA_OECONF_PATHS[vardepsexclude] = "TUNE_PKGARCH"
 TARGET_ARCH[vardepsexclude] = "TUNE_ARCH"
-get_gcc_fpu_setting[vardepvalue] = ""
+get_gcc_float_setting[vardepvalue] = ""
 
 #
 # gcc-cross looks and finds these in ${exec_prefix} but we're not so lucky
@@ -53,7 +55,6 @@ do_configure () {
 	export CPPFLAGS_FOR_TARGET="${TARGET_CPPFLAGS}"
 	export CXXFLAGS_FOR_TARGET="${TARGET_CXXFLAGS}"
 	export LDFLAGS_FOR_TARGET="${TARGET_LDFLAGS}"
-	(cd ${S} && gnu-configize) || die "failure running gnu-configize"
 	oe_runconf
 }
 
@@ -61,12 +62,10 @@ do_compile () {
 	oe_runmake all-host configure-target-libgcc
 }
 
-INHIBIT_PACKAGE_STRIP = "1"
-
 # Having anything auto depending on gcc-cross-sdk is a really bad idea...
 EXCLUDE_FROM_SHLIBS = "1"
 
-PACKAGES = "${PN} ${PN}-doc"
+PACKAGES = "${PN}-dbg ${PN} ${PN}-doc"
 
 FILES_${PN} = "\
     ${exec_prefix}/bin/* \
@@ -82,14 +81,19 @@ FILES_${PN} = "\
     ${prefix}/${TARGET_SYS}/bin/* \
     ${prefix}/${TARGET_SYS}/lib/* \
     ${prefix}/${TARGET_SYS}/usr/include/* \
-    "
+"
 INSANE_SKIP_${PN} += "dev-so"
+
+FILES_${PN}-dbg += " \
+    ${libexecdir}/gcc/${TARGET_SYS}/${BINV}/.debug \
+    ${libexecdir}/gcc/${TARGET_SYS}/${BINV}/plugin/.debug \
+"
 
 FILES_${PN}-doc = "\
     ${infodir} \
     ${mandir} \
     ${gcclibdir}/${TARGET_SYS}/${BINV}/include/README \
-    "
+"
 
 EXEEXT = ""
 
@@ -137,6 +141,8 @@ do_install () {
 
 		ln -sf ${BINRELPATH}/${TARGET_PREFIX}$t$suffix $dest$t$suffix
 	done
+	t=real-ld
+	ln -sf ${BINRELPATH}/${TARGET_PREFIX}ld$suffix $dest$t$suffix
 
 	# libquadmath headers need to  be available in the gcc libexec dir
 	install -d ${D}${libdir}/gcc/${TARGET_SYS}/${BINV}/include/
@@ -156,11 +162,16 @@ SYSTEMHEADERS = "/usr/include"
 SYSTEMLIBS = "${target_base_libdir}/"
 SYSTEMLIBS1 = "${target_libdir}/"
 
-EXTRA_OECONF += " --enable-poison-system-directories"
+EXTRA_OECONF += "--enable-poison-system-directories"
 
-EXTRA_OECONF += "--disable-libunwind-exceptions \
-		--with-mpfr=${STAGING_DIR_HOST}${layout_exec_prefix} \
-		--with-mpc=${STAGING_DIR_HOST}${layout_exec_prefix}"
+EXTRA_OECONF += "\
+    --with-mpfr=${STAGING_DIR_HOST}${layout_exec_prefix} \
+    --with-mpc=${STAGING_DIR_HOST}${layout_exec_prefix} \
+"
+
+EXTRA_OECONF_append_libc-baremetal = " --without-headers"
+EXTRA_OECONF_remove_libc-baremetal = "--with-sysroot=/not/exist"
+EXTRA_OECONF_remove_libc-baremetal = "--with-build-sysroot=${STAGING_DIR_TARGET}"
 
 # gcc 4.7 needs -isystem
 export ARCH_FLAGS_FOR_TARGET = "--sysroot=${STAGING_DIR_TARGET} -isystem=${target_includedir}"

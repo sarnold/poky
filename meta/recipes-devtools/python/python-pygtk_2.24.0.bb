@@ -15,6 +15,7 @@ SRC_URI = "ftp://ftp.gnome.org/pub/gnome/sources/pygtk/2.24/${SRCNAME}-${PV}.tar
            file://fix-gtkunixprint.patch \
            file://prevent_to_get_display_during_import.patch \
            file://nodocs.patch \
+	   file://fix-pygtk-2.0.pc.patch \
            file://acinclude.m4 \
            file://update-dependences-of-defs.c.patch"
 
@@ -25,7 +26,9 @@ S = "${WORKDIR}/${SRCNAME}-${PV}"
 
 EXTRA_OECONF = "--disable-docs --with-python-includes=${STAGING_INCDIR}/../"
 
-inherit autotools pkgconfig distutils-base
+inherit autotools pkgconfig distutils-base distro_features_check
+
+ANY_OF_DISTRO_FEATURES = "${GTK2DISTROFEATURES}"
 
 do_configure_prepend() {
 	install -m 0644 ${WORKDIR}/acinclude.m4 ${S}/
@@ -36,18 +39,12 @@ do_configure_prepend() {
 		-e s:'`$PKG_CONFIG --variable codegendir pygobject-2.0`':\"${STAGING_DATADIR}/pygobject/2.0/codegen\":g \
 		-e s:'`$PKG_CONFIG --variable=fixxref pygobject-2.0`':\"${STAGING_DATADIR}/pygobject/xsl/fixxref.py\":g \
 		${S}/configure.ac
-	sed -i 's:tests docs:tests:' ${S}/Makefile.am
-}
-
-# dirty fix #1: remove dependency on python-pygobject-dev
-do_install_append() {
-	find ${D} -name "*.la"|xargs rm -f
-	rm -f ${D}/${bindir}/pygtk-codegen-2.0
-	rm -rf ${D}/${libdir}/pkgconfig
 }
 
 # dirty fix #2: fix build system paths leaking in
-require fix-path.inc
+do_install_append() {
+	sed -i -e '1s|^#!.*python|#!/usr/bin/env python|' ${D}${bindir}/pygtk-demo
+}
 
 PACKAGES =+ "${PN}-demo"
 FILES_${PN}-demo = " ${bindir}/pygtk-demo ${libdir}/pygtk "

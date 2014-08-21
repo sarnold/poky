@@ -1,37 +1,42 @@
+KBRANCH ?= "standard/base"
+
 require recipes-kernel/linux/linux-yocto.inc
 
-KBRANCH = "standard/base"
-
 # board specific branches
-KBRANCH_qemuarm  = "standard/arm-versatile-926ejs"
-KBRANCH_qemumips = "standard/mti-malta32"
-KBRANCH_qemuppc  = "standard/qemuppc"
-KBRANCH_qemux86  = "standard/common-pc/base"
-KBRANCH_qemux86-64  = "standard/common-pc-64/base"
-KBRANCH_qemumips64 = "standard/mti-malta64"
+KBRANCH_qemuarm  ?= "standard/arm-versatile-926ejs"
+KBRANCH_qemuarm64 ?= "standard/qemuarm64"
+KBRANCH_qemumips ?= "standard/mti-malta32"
+KBRANCH_qemuppc  ?= "standard/qemuppc"
+KBRANCH_qemux86  ?= "standard/common-pc/base"
+KBRANCH_qemux86-64 ?= "standard/common-pc-64/base"
+KBRANCH_qemumips64 ?= "standard/mti-malta64"
 
-SRCREV_machine_qemuarm ?= "b38b84aebf889d84e65e81ac11122b977f0c5155"
-SRCREV_machine_qemumips ?= "c9d827207d8dfab330787659b2842485dbd36d77"
-SRCREV_machine_qemuppc ?= "58b7cb00580985410ba8491c61e80d2572552ed9"
-SRCREV_machine_qemux86 ?= "5b327970eb1dba02c65cb8330dc8f3049c4fa580"
-SRCREV_machine_qemux86-64 ?= "5724bf17acbf54cf61003ab242448fd96d189384"
-SRCREV_machine_qemumips64 ?= "34837892b66eaa034cd3e3d339cab0ea6f594511"
-SRCREV_machine ?= "5724bf17acbf54cf61003ab242448fd96d189384"
-SRCREV_meta ?= "b2af4e3528e65583c98f3a08c6edb0cad7a120b0"
+SRCREV_machine_qemuarm ?= "4817747912b5c50ce5c31ef25658340ca615e1b4"
+SRCREV_machine_qemuarm64 ?= "578602a722dbfb260801f3b37c6eafd2abb2340d"
+SRCREV_machine_qemumips ?= "6ed76ec26b120f65f8547c8612b7334bd2745ec9"
+SRCREV_machine_qemuppc ?= "a86ade84b2e142c0fd7536d96477107b6d07db5c"
+SRCREV_machine_qemux86 ?= "af1f7f586bd32d39c057f17606991b887eadb389"
+SRCREV_machine_qemux86-64 ?= "578602a722dbfb260801f3b37c6eafd2abb2340d"
+SRCREV_machine_qemumips64 ?= "a63d40b860a6d255005a541894d53729090b40ea"
+SRCREV_machine ?= "578602a722dbfb260801f3b37c6eafd2abb2340d"
+SRCREV_meta ?= "060fa80b7996250001ee90c50a4978c8fdb87fc4"
 
-SRC_URI = "git://git.yoctoproject.org/linux-yocto-3.14.git;bareclone=1;branch=${KBRANCH},${KMETA};name=machine,meta"
+SRC_URI = "git://git.yoctoproject.org/linux-yocto-3.14.git;branch=${KBRANCH};name=machine; \
+           git://git.yoctoproject.org/yocto-kernel-cache;type=kmeta;name=meta;branch=yocto-3.14;destsuffix=${KMETA}"
 
-LINUX_VERSION ?= "3.14.5"
+LINUX_VERSION ?= "3.14.36"
 
 PV = "${LINUX_VERSION}+git${SRCPV}"
 
-KMETA = "meta"
+KMETA = "kernel-meta"
+KCONF_BSP_AUDIT_LEVEL = "2"
 
-COMPATIBLE_MACHINE = "qemuarm|qemux86|qemuppc|qemumips|qemumips64|qemux86-64"
+COMPATIBLE_MACHINE = "qemuarm|qemuarm64|qemux86|qemuppc|qemumips|qemumips64|qemux86-64"
 
 # Functionality flags
 KERNEL_EXTRA_FEATURES ?= "features/netfilter/netfilter.scc"
 KERNEL_FEATURES_append = " ${KERNEL_EXTRA_FEATURES}"
+KERNEL_FEATURES_append_qemuall=" cfg/virtio.scc"
 KERNEL_FEATURES_append_qemux86=" cfg/sound.scc cfg/paravirt_kvm.scc"
 KERNEL_FEATURES_append_qemux86-64=" cfg/sound.scc cfg/paravirt_kvm.scc"
 KERNEL_FEATURES_append = " ${@bb.utils.contains("TUNE_FEATURES", "mx32", " cfg/x32.scc", "" ,d)}"

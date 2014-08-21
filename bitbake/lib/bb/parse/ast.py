@@ -85,7 +85,7 @@ class DataNode(AstNode):
         if 'flag' in self.groupd and self.groupd['flag'] != None:
             return data.getVarFlag(key, self.groupd['flag'], noweakdefault=True)
         else:
-            return data.getVar(key, noweakdefault=True)
+            return data.getVar(key, False, noweakdefault=True, parsing=True)
 
     def eval(self, data):
         groupd = self.groupd
@@ -128,7 +128,7 @@ class DataNode(AstNode):
         if 'flag' in groupd and groupd['flag'] != None:
             flag = groupd['flag']
         elif groupd["lazyques"]:
-            flag = "defaultval"
+            flag = "_defaultval"
 
         loginfo['op'] = op
         loginfo['detail'] = groupd["value"]
@@ -136,10 +136,10 @@ class DataNode(AstNode):
         if flag:
             data.setVarFlag(key, flag, val, **loginfo)
         else:
-            data.setVar(key, val, **loginfo)
+            data.setVar(key, val, parsing=True, **loginfo)
 
 class MethodNode(AstNode):
-    tr_tbl = string.maketrans('/.+-@%', '______')
+    tr_tbl = string.maketrans('/.+-@%&', '_______')
 
     def __init__(self, filename, lineno, func_name, body):
         AstNode.__init__(self, filename, lineno)
@@ -152,13 +152,13 @@ class MethodNode(AstNode):
             funcname = ("__anon_%s_%s" % (self.lineno, self.filename.translate(MethodNode.tr_tbl)))
             text = "def %s(d):\n" % (funcname) + text
             bb.methodpool.insert_method(funcname, text, self.filename)
-            anonfuncs = data.getVar('__BBANONFUNCS') or []
+            anonfuncs = data.getVar('__BBANONFUNCS', False) or []
             anonfuncs.append(funcname)
             data.setVar('__BBANONFUNCS', anonfuncs)
-            data.setVar(funcname, text)
+            data.setVar(funcname, text, parsing=True)
         else:
             data.setVarFlag(self.func_name, "func", 1)
-            data.setVar(self.func_name, text)
+            data.setVar(self.func_name, text, parsing=True)
 
 class PythonMethodNode(AstNode):
     def __init__(self, filename, lineno, function, modulename, body):
@@ -175,7 +175,7 @@ class PythonMethodNode(AstNode):
         bb.methodpool.insert_method(self.modulename, text, self.filename)
         data.setVarFlag(self.function, "func", 1)
         data.setVarFlag(self.function, "python", 1)
-        data.setVar(self.function, text)
+        data.setVar(self.function, text, parsing=True)
 
 class MethodFlagsNode(AstNode):
     def __init__(self, filename, lineno, key, m):
@@ -184,7 +184,7 @@ class MethodFlagsNode(AstNode):
         self.m = m
 
     def eval(self, data):
-        if data.getVar(self.key):
+        if data.getVar(self.key, False):
             # clean up old version of this piece of metadata, as its
             # flags could cause problems
             data.setVarFlag(self.key, 'python', None)
@@ -209,10 +209,10 @@ class ExportFuncsNode(AstNode):
         for func in self.n:
             calledfunc = self.classname + "_" + func
 
-            if data.getVar(func) and not data.getVarFlag(func, 'export_func'):
+            if data.getVar(func, False) and not data.getVarFlag(func, 'export_func'):
                 continue
 
-            if data.getVar(func):
+            if data.getVar(func, False):
                 data.setVarFlag(func, 'python', None)
                 data.setVarFlag(func, 'func', None)
 
@@ -224,9 +224,11 @@ class ExportFuncsNode(AstNode):
                     data.setVarFlag(calledfunc, flag, data.getVarFlag(func, flag))
 
             if data.getVarFlag(calledfunc, "python"):
-                data.setVar(func, "    bb.build.exec_func('" + calledfunc + "', d)\n")
+                data.setVar(func, "    bb.build.exec_func('" + calledfunc + "', d)\n", parsing=True)
             else:
-                data.setVar(func, "    " + calledfunc + "\n")
+                if "-" in self.classname:
+                   bb.fatal("The classname %s contains a dash character and is calling an sh function %s using EXPORT_FUNCTIONS. Since a dash is illegal in sh function names, this cannot work, please rename the class or don't use EXPORT_FUNCTIONS." % (self.classname, calledfunc))
+                data.setVar(func, "    " + calledfunc + "\n", parsing=True)
             data.setVarFlag(func, 'export_func', '1')
 
 class AddTaskNode(AstNode):
@@ -253,7 +255,7 @@ class BBHandlerNode(AstNode):
         self.hs = fns.split()
 
     def eval(self, data):
-        bbhands = data.getVar('__BBHANDLERS') or []
+        bbhands = data.getVar('__BBHANDLERS', False) or []
         for h in self.hs:
             bbhands.append(h)
             data.setVarFlag(h, "handler", 1)
@@ -313,23 +315,22 @@ def handleInherit(statements, filename, lineno, m):
 
 def finalize(fn, d, variant = None):
     all_handlers = {}
-    for var in d.getVar('__BBHANDLERS') or []:
+    for var in d.getVar('__BBHANDLERS', False) or []:
         # try to add the handler
-        bb.event.register(var, d.getVar(var), (d.getVarFlag(var, "eventmask", True) or "").split())
+        bb.event.register(var, d.getVar(var, False), (d.getVarFlag(var, "eventmask", True) or "").split())
 
     bb.event.fire(bb.event.RecipePreFinalise(fn), d)
 
     bb.data.expandKeys(d)
     bb.data.update_data(d)
     code = []
-    for funcname in d.getVar("__BBANONFUNCS") or []:
+    for funcname in d.getVar("__BBANONFUNCS", False) or []:
         code.append("%s(d)" % funcname)
     bb.utils.better_exec("\n".join(code), {"d": d})
     bb.data.update_data(d)
 
-    tasklist = d.getVar('__BBTASKS') or []
-    deltasklist = d.getVar('__BBDELTASKS') or []
-    bb.build.add_tasks(tasklist, deltasklist, d)
+    tasklist = d.getVar('__BBTASKS', False) or []
+    bb.build.add_tasks(tasklist, d)
 
     bb.parse.siggen.finalise(fn, d, variant)
 

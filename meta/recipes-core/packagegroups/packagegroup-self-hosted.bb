@@ -7,7 +7,9 @@ DESCRIPTION = "Packages required to run the build system"
 PR = "r13"
 LICENSE = "MIT"
 
-inherit packagegroup
+inherit packagegroup  distro_features_check
+# rdepends on libx11-dev
+REQUIRED_DISTRO_FEATURES = "x11"
 
 PACKAGES = "\
     packagegroup-self-hosted \
@@ -26,10 +28,6 @@ RDEPENDS_packagegroup-self-hosted = "\
     packagegroup-self-hosted-host-tools \
     "
 
-# midori depends on webkit-gtk which could not build for mips64
-MIDORI = "midori"
-MIDORI_mips64 = ""
-
 RDEPENDS_packagegroup-self-hosted-host-tools = "\
     connman \
     connman-plugin-ethernet \
@@ -41,19 +39,14 @@ RDEPENDS_packagegroup-self-hosted-host-tools = "\
     hdparm \
     iptables \
     lsb \
-    xdg-utils \
     mc \
     mc-fish \
     mc-helpers \
     mc-helpers-perl \
     mc-helpers-python \
-    leafpad \
-    ${MIDORI} \
-    pcmanfm \
     parted \
     pseudo \
     screen \
-    vte \
     "
 
 RRECOMMENDS_packagegroup-self-hosted-host-tools = "\
@@ -64,7 +57,6 @@ RRECOMMENDS_packagegroup-self-hosted-host-tools = "\
     kernel-module-iptable-filter \
 	"
 
-# eglibc-utils: for rpcgen
 RDEPENDS_packagegroup-self-hosted-sdk = "\
     autoconf \
     automake \
@@ -75,8 +67,7 @@ RDEPENDS_packagegroup-self-hosted-sdk = "\
     cpp \
     cpp-symlinks \
     distcc \
-    eglibc-utils \
-    eglibc-gconv-ibm850 \
+    glibc-gconv-ibm850 \
     file \
     findutils \
     g++ \
@@ -100,7 +91,10 @@ RDEPENDS_packagegroup-self-hosted-sdk = "\
     quilt \
     sed \
     "
-
+# glibc-utils: for rpcgen
+RDEPENDS_packagegroup-self-hosted-sdk_append_libc-glibc = "\
+    glibc-utils \
+    "
 RDEPENDS_packagegroup-self-hosted-debug = " \
     gdb \
     gdbserver \
@@ -119,12 +113,12 @@ RDEPENDS_packagegroup-self-hosted-extended = "\
     diffutils \
     elfutils \
     expat \
-    gamin \
     gawk \
     gdbm \
     gettext \
     gettext-runtime \
     git \
+    git-perltools \
     grep \
     groff \
     gzip \
@@ -158,37 +152,11 @@ RDEPENDS_packagegroup-self-hosted-extended = "\
     perl-pod \
     ${PTH} \
     python \
-    python-compile \
     python-compiler \
-    python-compression \
-    python-core \
-    python-curses \
-    python-datetime \
-    python-difflib \
-    python-distutils \
-    python-elementtree \
-    python-email \
-    python-fcntl \
     python-git \
-    python-json \
-    python-logging \
     python-misc \
-    python-mmap \
-    python-multiprocessing \
-    python-netclient \
-    python-netserver \
-    python-pickle \
-    python-pkgutil \
-    python-pprint \
-    python-re \
+    python-modules \
     python-rpm \
-    python-shell \
-    python-sqlite3 \
-    python-subprocess \
-    python-textutils \
-    python-unittest \
-    python-unixadmin \
-    python-xmlrpc \
     quota \
     readline \
     rpm \
@@ -224,6 +192,11 @@ RDEPENDS_packagegroup-self-hosted-graphics = "\
     libx11-dev \
     python-pygtk \
     gtk-theme-clearlooks \
+    xdg-utils \
+    epiphany \
+    leafpad \
+    pcmanfm \
+    vte \
     "
 PTH = "pth"
 PTH_libc-uclibc = ""

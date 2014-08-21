@@ -41,14 +41,14 @@ fi
 
 chmod +x "$intercept_script"
 
-pkgs_line="$(cat $intercept_script|grep "##PKGS:")"
+pkgs_line=$(grep "##PKGS:" $intercept_script)
 if [ -n "$pkgs_line" ]; then
 	# line exists, add this package to the list only if it's not already there
 	if [ -z "$(echo "$pkgs_line" | grep " $package_name ")" ]; then
 		sed -i -e "s/##PKGS:.*/\0${package_name} /" $intercept_script
 	fi
 else
-	for var in $@; do
+	for var in "$@"; do
 		sed -i -e "\%^#\!/bin/.*sh%a $var" $intercept_script
 	done
 	echo "##PKGS: ${package_name} " >> $intercept_script

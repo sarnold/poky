@@ -1,5 +1,7 @@
 SUMMARY = "A general-purpose utility library"
 DESCRIPTION = "GLib is a general-purpose utility library, which provides many useful data types, macros, type conversions, string utilities, file utilities, a main loop abstraction, and so on."
+HOMEPAGE = "https://developer.gnome.org/glib/"
+
 # pcre is under BSD;
 # docs/reference/COPYING is with a 'public domai'-like license!
 LICENSE = "LGPLv2+ & BSD & PD"
@@ -15,10 +17,10 @@ SECTION = "libs"
 
 BBCLASSEXTEND = "native nativesdk"
 
-DEPENDS = "glib-2.0-native virtual/libiconv libffi zlib"
-DEPENDS_append_class-target = "${@bb.utils.contains('DISTRO_FEATURES', 'ptest', ' dbus', '', d)}"
+DEPENDS = "virtual/libiconv libffi zlib"
+DEPENDS_append = " ${@bb.utils.contains('PTEST_ENABLED', '1', ' glib-2.0-native dbus', '', d)}"
 DEPENDS_class-native = "pkgconfig-native gettext-native libffi-native zlib-native"
-DEPENDS_class-nativesdk = "nativesdk-libtool nativesdk-libffi nativesdk-zlib ${BPN}-native"
+DEPENDS_class-nativesdk = "nativesdk-libtool nativesdk-gettext nativesdk-libffi nativesdk-zlib"
 
 PACKAGES =+ "${PN}-utils ${PN}-bash-completion ${PN}-codegen"
 
@@ -31,7 +33,10 @@ S = "${WORKDIR}/glib-${PV}"
 
 CORECONF = "--disable-dtrace --disable-fam --disable-libelf --disable-systemtap --disable-man"
 
-EXTRA_OECONF = "--enable-included-printf=no ${CORECONF}"
+PRINTF = "--enable-included-printf=no"
+PRINTF_darwin = "--enable-included-printf=yes"
+PRINTF_mingw32 = "--enable-included-printf=yes"
+EXTRA_OECONF = "${PRINTF} ${CORECONF}"
 EXTRA_OECONF_class-native = "${CORECONF} --disable-selinux"
 EXTRA_OECONF_append_libc-uclibc = " --with-libiconv=gnu"
 
@@ -55,7 +60,9 @@ ARM_INSTRUCTION_SET = "arm"
 USE_NLS = "yes"
 
 do_install_append () {
-	sed ${D}${bindir}/gtester-report -i -e '1s|^#!.*|#!/usr/bin/env python|'
+	if [ -f ${D}${bindir}/gtester-report ]; then
+		sed ${D}${bindir}/gtester-report -i -e '1s|^#!.*|#!/usr/bin/env python|'
+	fi
 
 	# Remove some unpackaged files
 	rm -f ${D}${datadir}/glib-2.0/codegen/*.pyc
@@ -81,17 +88,17 @@ RDEPENDS_${PN}-ptest += "\
            "
 
 RDEPENDS_${PN}-ptest_append_libc-glibc = "\
-            eglibc-gconv-utf-16 \
-            eglibc-charmap-utf-8 \
-            eglibc-gconv-cp1255 \
-            eglibc-charmap-cp1255 \
-            eglibc-gconv-utf-32 \
-            eglibc-gconv-utf-7 \
-            eglibc-gconv-euc-jp \
-            eglibc-gconv-iso8859-1 \
-            eglibc-gconv-iso8859-15 \
-            eglibc-charmap-invariant \
-            eglibc-localedata-translit-cjk-variants \
+            glibc-gconv-utf-16 \
+            glibc-charmap-utf-8 \
+            glibc-gconv-cp1255 \
+            glibc-charmap-cp1255 \
+            glibc-gconv-utf-32 \
+            glibc-gconv-utf-7 \
+            glibc-gconv-euc-jp \
+            glibc-gconv-iso8859-1 \
+            glibc-gconv-iso8859-15 \
+            glibc-charmap-invariant \
+            glibc-localedata-translit-cjk-variants \
            "
 
 INSANE_SKIP_${PN}-ptest += "libdir"

@@ -62,6 +62,13 @@ class SignatureGenerator(object):
     def dump_sigs(self, dataCache, options):
         return
 
+    def get_taskdata(self):
+       return (self.runtaskdeps, self.taskhash, self.file_checksum_values)
+
+    def set_taskdata(self, data):
+        self.runtaskdeps, self.taskhash, self.file_checksum_values = data
+
+
 class SignatureGeneratorBasic(SignatureGenerator):
     """
     """
@@ -73,6 +80,7 @@ class SignatureGeneratorBasic(SignatureGenerator):
         self.taskdeps = {}
         self.runtaskdeps = {}
         self.file_checksum_values = {}
+        self.taints = {}
         self.gendeps = {}
         self.lookupcache = {}
         self.pkgnameextract = re.compile("(?P<fn>.*)\..*")
@@ -185,22 +193,27 @@ class SignatureGeneratorBasic(SignatureGenerator):
             checksums = bb.fetch2.get_file_checksums(dataCache.file_checksums[fn][task], recipename)
             for (f,cs) in checksums:
                 self.file_checksum_values[k][f] = cs
-                data = data + cs
+                if cs:
+                    data = data + cs
+
+        taskdep = dataCache.task_deps[fn]
+        if 'nostamp' in taskdep and task in taskdep['nostamp']:
+            # Nostamp tasks need an implicit taint so that they force any dependent tasks to run
+            import uuid
+            taint = str(uuid.uuid4())
+            data = data + taint
+            self.taints[k] = "nostamp:" + taint
 
         taint = self.read_taint(fn, task, dataCache.stamp[fn])
         if taint:
             data = data + taint
+            self.taints[k] = taint
             logger.warn("%s is tainted from a forced run" % k)
 
         h = hashlib.md5(data).hexdigest()
         self.taskhash[k] = h
         #d.setVar("BB_TASKHASH_task-%s" % task, taskhash[task])
         return h
-
-    def set_taskdata(self, hashes, deps, checksums):
-        self.runtaskdeps = deps
-        self.taskhash = hashes
-        self.file_checksum_values = checksums
 
     def dump_sigtask(self, fn, task, stampbase, runtime):
         k = fn + "." + task
@@ -237,6 +250,10 @@ class SignatureGeneratorBasic(SignatureGenerator):
         taint = self.read_taint(fn, task, stampbase)
         if taint:
             data['taint'] = taint
+
+        if runtime and k in self.taints:
+            if 'nostamp:' in self.taints[k]:
+                data['taint'] = self.taints[k]
 
         fd, tmpfile = tempfile.mkstemp(dir=os.path.dirname(sigfile), prefix="sigtask.")
         try:
@@ -294,16 +311,21 @@ def dump_this_task(outfile, d):
     bb.parse.siggen.dump_sigtask(fn, task, outfile, "customfile")
 
 def clean_basepath(a):
+    b = a.rsplit("/", 2)[1] + a.rsplit("/", 2)[2]
     if a.startswith("virtual:"):
-        b = a.rsplit(":", 1)[0] + ":" + a.rsplit("/", 1)[1]
-    else:
-        b = a.rsplit("/", 1)[1]
+        b = b + ":" + a.rsplit(":", 1)[0]
     return b
 
 def clean_basepaths(a):
     b = {}
     for x in a:
         b[clean_basepath(x)] = a[x]
+    return b
+
+def clean_basepaths_list(a):
+    b = []
+    for x in a:
+        b.append(clean_basepath(x))
     return b
 
 def compare_sigfiles(a, b, recursecb = None):
@@ -406,6 +428,21 @@ def compare_sigfiles(a, b, recursecb = None):
             output.append("Dependency on checksum of file %s was removed" % (f))
 
 
+    if len(a_data['runtaskdeps']) != len(b_data['runtaskdeps']):
+        changed = ["Number of task dependencies changed"]
+    else:
+        changed = []
+        for idx, task in enumerate(a_data['runtaskdeps']):
+            a = a_data['runtaskdeps'][idx]
+            b = b_data['runtaskdeps'][idx]
+            if a_data['runtaskhashes'][a] != b_data['runtaskhashes'][b]:
+                changed.append("%s with hash %s\n changed to\n%s with hash %s" % (a, a_data['runtaskhashes'][a], b, b_data['runtaskhashes'][b]))
+
+    if changed:
+        output.append("runtaskdeps changed from %s to %s" % (clean_basepaths_list(a_data['runtaskdeps']), clean_basepaths_list(b_data['runtaskdeps'])))
+        output.append("\n".join(changed))
+
+
     if 'runtaskhashes' in a_data and 'runtaskhashes' in b_data:
         a = a_data['runtaskhashes']
         b = b_data['runtaskhashes']
@@ -480,5 +517,18 @@ def dump_sigfile(a):
 
     if 'taint' in a_data:
         output.append("Tainted (by forced/invalidated task): %s" % a_data['taint'])
+
+    data = a_data['basehash']
+    for dep in a_data['runtaskdeps']:
+        data = data + a_data['runtaskhashes'][dep]
+
+    for c in a_data['file_checksum_values']:
+        data = data + c[1]
+
+    if 'taint' in a_data:
+        data = data + a_data['taint']
+
+    h = hashlib.md5(data).hexdigest()
+    output.append("Computed Hash is %s" % h)
 
     return output

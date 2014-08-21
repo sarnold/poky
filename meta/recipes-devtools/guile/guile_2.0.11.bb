@@ -11,7 +11,7 @@ DESCRIPTION = "Guile is the GNU Ubiquitous Intelligent Language for Extensions,\
 HOMEPAGE = "http://www.gnu.org/software/guile/"
 SECTION = "devel"
 LICENSE = "GPLv3"
-LIC_FILES_CHKSUM = "file://COPYING;md5=d32239bcb673463ab874e80d47fae504" 
+LIC_FILES_CHKSUM = "file://COPYING;md5=d32239bcb673463ab874e80d47fae504"
 
 SRC_URI = "${GNU_MIRROR}/guile/guile-${PV}.tar.xz \
            file://debian/0002-Mark-Unused-modules-are-removed-gc-test-as-unresolve.patch \
@@ -19,10 +19,14 @@ SRC_URI = "${GNU_MIRROR}/guile/guile-${PV}.tar.xz \
            file://opensuse/guile-64bit.patch \
            file://guile_2.0.6_fix_sed_error.patch \
            file://arm_endianness.patch \
+           file://arm_aarch64.patch \
+           file://workaround-ice-ssa-corruption.patch \
+           file://libguile-Makefile.am-hook.patch \
+           file://libguile-VM-ASM_MUL-for-ARM-Add-earlyclobber.patch \
            "
 
 #           file://debian/0001-Change-guile-to-guile-X.Y-for-info-pages.patch
-#           file://opensuse/guile-turn-off-gc-test.patch 
+#           file://opensuse/guile-turn-off-gc-test.patch
 
 SRC_URI[md5sum] = "03f1bce1a4983076d955003472306a13"
 SRC_URI[sha256sum] = "aed0a4a6db4e310cbdfeb3613fa6f86fddc91ef624c1e3f8937a6304c69103e2"
@@ -33,11 +37,19 @@ BBCLASSEXTEND = "native"
 
 DEPENDS = "libunistring bdwgc gmp libtool libffi ncurses readline"
 # add guile-native only to the target recipe's DEPENDS
-DEPENDS_append_class-target = " guile-native libatomics-ops"
+DEPENDS_append_class-target = " guile-native libatomic-ops"
 
-RDEPENDS_${PN}_append_libc-glibc_class-target = "glibc-gconv-iso8859-1"
+# The comment of the script guile-config said it has been deprecated but we should
+# at least add the required dependency to make it work since we still provide the script.
+RDEPENDS_${PN} = "pkgconfig"
+
+RDEPENDS_${PN}_append_libc-glibc_class-target = " glibc-gconv-iso8859-1"
 
 EXTRA_OECONF += "${@['--without-libltdl-prefix --without-libgmp-prefix --without-libreadline-prefix', ''][bb.data.inherits_class('native',d)]}"
+
+EXTRA_OECONF_append_class-target = " --with-libunistring-prefix=${STAGING_LIBDIR} \
+                                     --with-libgmp-prefix=${STAGING_LIBDIR} \
+                                     --with-libltdl-prefix=${STAGING_LIBDIR}"
 
 do_configure_prepend() {
 	mkdir -p po
@@ -69,6 +81,12 @@ do_install_append_class-native() {
 		GUILE_LOAD_COMPILED_PATH=${STAGING_LIBDIR_NATIVE}/guile/2.0/ccache
 }
 
+do_install_append_class-target() {
+	# cleanup buildpaths in scripts
+	sed -i -e 's:${STAGING_DIR_NATIVE}::' ${D}/usr/bin/guile-config
+	sed -i -e 's:${STAGING_DIR_HOST}::' ${D}/usr/bin/guile-snarf
+}
+
 SYSROOT_PREPROCESS_FUNCS = "guile_cross_config"
 
 guile_cross_config() {
@@ -78,16 +96,16 @@ guile_cross_config() {
 	        # Create guile-config returning target values instead of native values
 	        install -d ${SYSROOT_DESTDIR}${STAGING_BINDIR_CROSS}
         	echo '#!'`which ${BUILD_SYS}-guile`$' \\\n--no-auto-compile -e main -s\n!#\n(define %guile-build-info '\'\( \
-			> guile-config.cross
+			> ${B}/guile-config.cross
 	        sed -n -e 's:^[ \t]*{[ \t]*":  (:' \
 			-e 's:",[ \t]*": . ":' \
 			-e 's:" *}, *\\:"):' \
 			-e 's:^.*cachedir.*$::' \
 			-e '/^  (/p' \
-			< libguile/libpath.h >> guile-config.cross
-	        echo '))' >> guile-config.cross
-	        cat meta/guile-config >> guile-config.cross
-	        install guile-config.cross ${STAGING_BINDIR_CROSS}/guile-config
+			< ${B}/libguile/libpath.h >> ${B}/guile-config.cross
+	        echo '))' >> ${B}/guile-config.cross
+	        cat ${B}/meta/guile-config >> ${B}/guile-config.cross
+	        install ${B}/guile-config.cross ${STAGING_BINDIR_CROSS}/guile-config
 	fi
 }
 

@@ -17,6 +17,7 @@ SRC_URI = "ftp://ftp.gnupg.org/gcrypt/gnupg/gnupg-${PV}.tar.bz2 \
            file://curl_typeof_fix_backport.patch \
            file://CVE-2013-4351.patch \
            file://CVE-2013-4576.patch \
+           file://CVE-2013-4242.patch \
 	  "
 
 SRC_URI[md5sum] = "b06a141cca5cd1a55bbdd25ab833303c"
@@ -80,6 +81,9 @@ EXTRA_OECONF = "--disable-ldap \
                 ac_cv_sys_symbol_underscore=no \
 		"
 
+# Force gcc's traditional handling of inline to avoid issues with gcc 5
+CFLAGS += "-fgnu89-inline"
+
 do_install () {
 	autotools_do_install
 	install -d ${D}${docdir}/${BPN}
@@ -98,3 +102,4 @@ FILES_${PN}-dbg += "${libexecdir}/${BPN}/.debug"
 
 PACKAGECONFIG ??= ""
 PACKAGECONFIG[curl] = "--with-libcurl=${STAGING_LIBDIR},--without-libcurl,curl"
+PACKAGECONFIG[libusb] = "--with-libusb=${STAGING_LIBDIR},--without-libusb,libusb-compat"

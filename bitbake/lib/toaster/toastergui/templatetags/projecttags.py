@@ -20,10 +20,13 @@
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 from datetime import datetime, timedelta
+from os.path import relpath
 import re
 from django import template
 from django.utils import timezone
 from django.template.defaultfilters import filesizeformat
+import json as JsonLib
+from django.utils.safestring import mark_safe
 
 register = template.Library()
 
@@ -40,6 +43,20 @@ def sectohms(time):
     hours = int(tdsec / 3600)
     return "%02d:%02d:%02d" % (hours, int((tdsec - (hours * 3600))/ 60), int(tdsec) % 60)
 
+
+@register.filter(name = 'get_tasks')
+def get_tasks(queryset):
+    return list(target + ':' + task if task else target \
+                    for target, task in queryset.values_list('target', 'task'))
+
+
+@register.filter(name = "json")
+def json(value, default = None):
+    # JSON spec says that "\/" is functionally identical to "/" to allow for HTML-tag embedding in JSON strings
+    # unfortunately, I can't find any option in the json module to turn on forward-slash escaping, so we do
+    # it manually here
+    return mark_safe(JsonLib.dumps(value, indent=2, default = default, ensure_ascii=False).replace('</', '<\\/'))
+
 @register.assignment_tag
 def query(qs, **kwargs):
     """ template tag which allows queryset filtering. Usage:
@@ -49,6 +66,25 @@ def query(qs, **kwargs):
           {% endfor %}
     """
     return qs.filter(**kwargs)
+
+
+@register.filter("whitespace_slice")
+def whitespace_space_filter(value, arg):
+    try:
+        bits = []
+        for x in arg.split(":"):
+            if len(x) == 0:
+                bits.append(None)
+            else:
+                # convert numeric value to the first whitespace after
+                first_whitespace = value.find(" ", int(x))
+                if first_whitespace == -1:
+                    bits.append(int(x))
+                else:
+                    bits.append(first_whitespace)
+        return value[slice(*bits)]
+    except (ValueError, TypeError):
+        raise
 
 @register.filter
 def divide(value, arg):
@@ -91,6 +127,8 @@ def filtered_icon(options, filter):
     for option in options:
         if filter == option[1]:
             return "btn-primary"
+        if ('daterange' == option[1]) and filter.startswith(option[4]):
+            return "btn-primary"
     return ""
 
 @register.filter
@@ -99,6 +137,8 @@ def filtered_tooltip(options, filter):
     """
     for option in options:
         if filter == option[1]:
+            return "Showing only %s"%option[0]
+        if ('daterange' == option[1]) and filter.startswith(option[4]):
             return "Showing only %s"%option[0]
     return ""
 
@@ -144,47 +184,23 @@ def variable_parent_name(value):
     return re.sub('_[a-z].*', '', value)
 
 @register.filter
-def filter_setin_files(file_list,matchstr):
-    """ filter/search the 'set in' file lists. Note
-        that this output is not autoescaped to allow
-        the <p> marks, but this is safe as the data
-        is file paths
-    """
+def filter_setin_files(file_list, matchstr):
+    """Filter/search the 'set in' file lists."""
+    result = []
+    search, filter = matchstr.split(':')
+    for pattern in (search, filter):
+        if pattern:
+            for fobj in file_list:
+                fname = fobj.file_name
+                if fname not in result and re.search(pattern, fname):
+                    result.append(fname)
 
-    # no filters, show last file (if any)
-    if matchstr == ":":
-        if file_list:
-            return file_list[len(file_list)-1].file_name
-        else:
-            return ''
+    # no filter, show last file (if any)
+    last = list(file_list)[-1].file_name
+    if not filter and last not in result:
+        result.append(last)
 
-    search, filter = matchstr.partition(':')[::2]
-    htmlstr=""
-    # match only filters
-    if search == '':
-        for i in range(len(file_list)):
-            if re.search(filter, file_list[i].file_name):
-                if htmlstr.find(file_list[i].file_name + "<p>") < 0:
-                    htmlstr += file_list[i].file_name + "<p>"
-        return htmlstr
-
-    # match only search string, plus always last file
-    if filter == "":
-        for i in range(len(file_list)-1):
-            if re.search(search,file_list[i].file_name):
-                if htmlstr.find(file_list[i].file_name + "<p>") < 0:
-                    htmlstr += file_list[i].file_name + "<p>"
-        if htmlstr.find(file_list[len(file_list)-1].file_name) < 0:
-            htmlstr += file_list[len(file_list)-1].file_name
-        return htmlstr
-
-    # match filter or search string
-    for i in range(len(file_list)):
-        if re.search(filter, file_list[i].file_name) or re.search(search,file_list[i].file_name):
-            if htmlstr.find(file_list[i].file_name + "<p>") < 0:
-                htmlstr += file_list[i].file_name + "<p>"
-    return htmlstr
-
+    return result
 
 @register.filter
 def string_slice(strvar,slicevar):
@@ -253,3 +269,31 @@ def get_dict_value(dictionary, key):
         return dictionary[key]
     except (KeyError, IndexError):
         return ''
+
+@register.filter
+def format_build_date(completed_on):
+    now = timezone.now()
+    delta = now - completed_on
+
+    if delta.days >= 1:
+        return True
+
+@register.filter
+def is_shaid(text):
+    """ return True if text length is 40 characters and all hex-digits
+    """
+    try:
+        int(text, 16)
+        if len(text) == 40:
+            return True
+        return False
+    except ValueError:
+        return False
+
+@register.filter
+def cut_path_prefix(fullpath, prefixes):
+    """Cut path prefix from fullpath."""
+    for prefix in prefixes:
+        if fullpath.startswith(prefix):
+            return relpath(fullpath, prefix)
+    return fullpath

@@ -43,8 +43,8 @@
        <link linkend='var-DEFAULT_PREFERENCE'>D</link>
        <link linkend='var-EXCLUDE_FROM_WORLD'>E</link>
        <link linkend='var-FAKEROOT'>F</link>
-<!--       <link linkend='var-GROUPADD_PARAM'>G</link> -->
-       <link linkend='var-HOMEPAGE'>H</link>
+       <link linkend='var-GITDIR'>G</link>
+       <link linkend='var-HGDIR'>H</link>
 <!--       <link linkend='var-ICECC_DISABLED'>I</link> -->
 <!--               <link linkend='var-glossary-j'>J</link> -->
 <!--       <link linkend='var-KARCH'>K</link> -->
@@ -98,6 +98,56 @@
                 <para>
                     The directory in which BitBake executes functions
                     during a recipe's build process.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-BB_ALLOWED_NETWORKS'><glossterm>BB_ALLOWED_NETWORKS</glossterm>
+            <glossdef>
+                <para>
+                    Specifies a space-delimited list of hosts that the fetcher
+                    is allowed to use to obtain the required source code.
+                    Following are considerations surrounding this variable:
+                    <itemizedlist>
+                        <listitem><para>
+                            This host list is only used if
+                            <link linkend='var-BB_NO_NETWORK'><filename>BB_NO_NETWORK</filename></link>
+                            is either not set or set to "0".
+                            </para></listitem>
+                        <listitem><para>
+                            Limited support for wildcard matching against the
+                            beginning of host names exists.
+                            For example, the following setting matches
+                            <filename>git.gnu.org</filename>,
+                            <filename>ftp.gnu.org</filename>, and
+                            <filename>foo.git.gnu.org</filename>.
+                            <literallayout class='monospaced'>
+     BB_ALLOWED_NETWORKS = "*.gnu.org"
+                            </literallayout>
+                            </para></listitem>
+                        <listitem><para>
+                            Mirrors not in the host list are skipped and
+                            logged in debug.
+                            </para></listitem>
+                        <listitem><para>
+                            Attempts to access networks not in the host list
+                            cause a failure.
+                            </para></listitem>
+                    </itemizedlist>
+                    Using <filename>BB_ALLOWED_NETWORKS</filename> in
+                    conjunction with
+                    <link linkend='var-PREMIRRORS'><filename>PREMIRRORS</filename></link>
+                    is very useful.
+                    Adding the host you want to use to
+                    <filename>PREMIRRORS</filename> results in the source code
+                    being fetched from an allowed location and avoids raising
+                    an error when a host that is not allowed is in a
+                    <link linkend='var-SRC_URI'><filename>SRC_URI</filename></link>
+                    statement.
+                    This is because the fetcher does not attempt to use the
+                    host listed in <filename>SRC_URI</filename> after a
+                    successful fetch from the
+                    <filename>PREMIRRORS</filename> occurs.
                 </para>
             </glossdef>
         </glossentry>
@@ -806,6 +856,56 @@
             </glossdef>
         </glossentry>
 
+        <glossentry id='var-BB_TASK_IONICE_LEVEL'><glossterm>BB_TASK_IONICE_LEVEL</glossterm>
+            <glossdef>
+                <para>
+                    Allows adjustment of a task's Input/Output priority.
+                    During Autobuilder testing, random failures can occur
+                    for tasks due to I/O starvation.
+                    These failures occur during various QEMU runtime timeouts.
+                    You can use the <filename>BB_TASK_IONICE_LEVEL</filename>
+                    variable to adjust the I/O priority of these tasks.
+                    <note>
+                        This variable works similarly to the
+                        <link linkend='var-BB_TASK_NICE_LEVEL'><filename>BB_TASK_NICE_LEVEL</filename></link>
+                        variable except with a task's I/O priorities.
+                    </note>
+                </para>
+
+                <para>
+                    Set the variable as follows:
+                    <literallayout class='monospaced'>
+     BB_TASK_IONICE_LEVEL = "<replaceable>class</replaceable>.<replaceable>prio</replaceable>"
+                    </literallayout>
+                    For <replaceable>class</replaceable>, the default value is
+                    "2", which is a best effort.
+                    You can use "1" for realtime and "3" for idle.
+                    If you want to use realtime, you must have superuser
+                    privileges.
+                </para>
+
+                <para>
+                    For <replaceable>prio</replaceable>, you can use any
+                    value from "0", which is the highest priority, to "7",
+                    which is the lowest.
+                    The default value is "4".
+                    You do not need any special privileges to use this range
+                    of priority values.
+                    <note>
+                        In order for your I/O priority settings to take effect,
+                        you need the Completely Fair Queuing (CFQ) Scheduler
+                        selected for the backing block device.
+                        To select the scheduler, use the following command form
+                        where <replaceable>device</replaceable> is the device
+                        (e.g. sda, sdb, and so forth):
+                        <literallayout class='monospaced'>
+      $ sudo sh -c “echo cfq > /sys/block/<replaceable>device</replaceable>/queu/scheduler
+                        </literallayout>
+                    </note>
+                </para>
+            </glossdef>
+        </glossentry>
+
         <glossentry id='var-BB_TASK_NICE_LEVEL'><glossterm>BB_TASK_NICE_LEVEL</glossterm>
             <glossdef>
                 <para>
@@ -872,7 +972,7 @@
                     that run on the target <filename>MACHINE</filename>;
                     "nativesdk", which targets the SDK machine instead of
                     <filename>MACHINE</filename>; and "mulitlibs" in the form
-                    "<filename>multilib:&lt;multilib_name&gt;</filename>".
+                    "<filename>multilib:</filename><replaceable>multilib_name</replaceable>".
                 </para>
 
                 <para>
@@ -884,7 +984,7 @@
                     metadata:
                     <literallayout class='monospaced'>
      BBCLASSEXTEND =+ "native nativesdk"
-     BBCLASSEXTEND =+ "multilib:&lt;multilib_name&gt;"
+     BBCLASSEXTEND =+ "multilib:<replaceable>multilib_name</replaceable>"
                     </literallayout>
                 </para>
              </glossdef>
@@ -1016,6 +1116,20 @@
             </glossdef>
         </glossentry>
 
+        <glossentry id='var-BBLAYERS_FETCH_DIR'><glossterm>BBLAYERS_FETCH_DIR</glossterm>
+            <glossdef>
+                <para>
+                    Sets the base location where layers are stored.
+                    By default, this location is set to
+                    <filename>${COREBASE}</filename>.
+                    This setting is used in conjunction with
+                    <filename>bitbake-layers layerindex-fetch</filename> and
+                    tells <filename>bitbake-layers</filename> where to place
+                    the fetched layers.
+                </para>
+            </glossdef>
+        </glossentry>
+
         <glossentry id='var-BBMASK'><glossterm>BBMASK</glossterm>
             <glossdef>
                 <para>
@@ -1091,9 +1205,9 @@
                     Set the variable as you would any environment variable
                     and then run BitBake:
                     <literallayout class='monospaced'>
-     $ BBPATH="&lt;build_directory&gt;"
+     $ BBPATH="<replaceable>build_directory</replaceable>"
      $ export BBPATH
-     $ bitbake &lt;target&gt;
+     $ bitbake <replaceable>target</replaceable>
                     </literallayout>
                 </para>
             </glossdef>
@@ -1105,6 +1219,15 @@
                     Points to the server that runs memory-resident BitBake.
                     The variable is only used when you employ memory-resident
                     BitBake.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-BBTARGETS'><glossterm>BBTARGETS</glossterm>
+            <glossdef>
+                <para>
+                    Allows you to use a configuration file to add to the list
+                    of command-line target recipes you want to build.
                 </para>
             </glossdef>
         </glossentry>
@@ -1154,6 +1277,15 @@
             </glossdef>
         </glossentry>
 
+        <glossentry id='var-BZRDIR'><glossterm>BZRDIR</glossterm>
+            <glossdef>
+                <para>
+                    The directory in which files checked out of a Bazaar
+                    system are stored.
+                </para>
+            </glossdef>
+        </glossentry>
+
     </glossdiv>
 
     <glossdiv id='var-glossary-c'><title>C</title>
@@ -1164,6 +1296,15 @@
                     Specifies the directory BitBake uses to store a cache
                     of the metadata so it does not need to be parsed every
                     time BitBake is started.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-CVSDIR'><glossterm>CVSDIR</glossterm>
+            <glossdef>
+                <para>
+                    The directory in which files checked out under the
+                    CVS system are stored.
                 </para>
             </glossdef>
         </glossentry>
@@ -1412,12 +1553,31 @@
 
     </glossdiv>
 
-<!--
+
     <glossdiv id='var-glossary-g'><title>G</title>
+
+        <glossentry id='var-GITDIR'><glossterm>GITDIR</glossterm>
+            <glossdef>
+                <para>
+                    The directory in which a local copy of a Git repository
+                    is stored when it is cloned.
+                </para>
+            </glossdef>
+        </glossentry>
+
     </glossdiv>
--->
+
 
     <glossdiv id='var-glossary-h'><title>H</title>
+
+        <glossentry id='var-HGDIR'><glossterm>HGDIR</glossterm>
+            <glossdef>
+                <para>
+                    The directory in which files checked out of a Mercurial
+                    system are stored.
+                </para>
+            </glossdef>
+        </glossentry>
 
         <glossentry id='var-HOMEPAGE'><glossterm>HOMEPAGE</glossterm>
             <glossdef>
@@ -1851,7 +2011,7 @@
                     Here is the general syntax to specify versions with
                     the <filename>RDEPENDS</filename> variable:
                     <literallayout class='monospaced'>
-     RDEPENDS_${PN} = "&lt;package&gt; (&lt;operator&gt; &lt;version&gt;)"
+     RDEPENDS_${PN} = "<replaceable>package</replaceable> (<replaceable>operator</replaceable> <replaceable>version</replaceable>)"
                     </literallayout>
                     For <filename>operator</filename>, you can specify the
                     following:
@@ -1917,7 +2077,7 @@
                     Here is the general syntax to specify versions with
                     the <filename>RRECOMMENDS</filename> variable:
                     <literallayout class='monospaced'>
-     RRECOMMENDS_${PN} = "&lt;package&gt; (&lt;operator&gt; &lt;version&gt;)"
+     RRECOMMENDS_${PN} = "<replaceable>package</replaceable> (<replaceable>operator</replaceable> <replaceable>version</replaceable>)"
                     </literallayout>
                     For <filename>operator</filename>, you can specify the
                     following:
@@ -2096,6 +2256,15 @@
             <glossdef>
                 <para>
                     A short summary for the recipe, which is 72 characters or less.
+                </para>
+            </glossdef>
+        </glossentry>
+
+        <glossentry id='var-SVNDIR'><glossterm>SVNDIR</glossterm>
+            <glossdef>
+                <para>
+                    The directory in which files checked out of a Subversion
+                    system are stored.
                 </para>
             </glossdef>
         </glossentry>

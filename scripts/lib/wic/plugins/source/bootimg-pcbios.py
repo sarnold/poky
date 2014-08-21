@@ -25,48 +25,54 @@
 #
 
 import os
-import shutil
-import re
-import tempfile
 
+from wic.utils.errors import ImageError
 from wic import kickstart, msger
-from wic.utils import misc, fs_related, errors, runner, cmdln
-from wic.conf import configmgr
-from wic.plugin import pluginmgr
-import wic.imager.direct as direct
+from wic.utils import runner
 from wic.pluginbase import SourcePlugin
-from wic.utils.oe.misc import *
-from wic.imager.direct import DirectImageCreator
+from wic.utils.oe.misc import exec_cmd, exec_native_cmd, \
+                              get_bitbake_var, BOOTDD_EXTRA_SPACE
 
 class BootimgPcbiosPlugin(SourcePlugin):
+    """
+    Create MBR boot partition and install syslinux on it.
+    """
+
     name = 'bootimg-pcbios'
 
     @classmethod
-    def do_install_disk(self, disk, disk_name, cr, workdir, oe_builddir,
+    def do_install_disk(cls, disk, disk_name, creator, workdir, oe_builddir,
                         bootimg_dir, kernel_dir, native_sysroot):
         """
         Called after all partitions have been prepared and assembled into a
         disk image.  In this case, we install the MBR.
         """
         mbrfile = "%s/syslinux/" % bootimg_dir
-        if cr._ptable_format == 'msdos':
+        if creator.ptable_format == 'msdos':
             mbrfile += "mbr.bin"
+        elif creator.ptable_format == 'gpt':
+            mbrfile += "gptmbr.bin"
+        else:
+            msger.error("Unsupported partition table: %s" % creator.ptable_format)
 
         if not os.path.exists(mbrfile):
-            msger.error("Couldn't find %s.  If using the -e option, do you have the right MACHINE set in local.conf?  If not, is the bootimg_dir path correct?" % mbrfile)
+            msger.error("Couldn't find %s.  If using the -e option, do you "
+                        "have the right MACHINE set in local.conf?  If not, "
+                        "is the bootimg_dir path correct?" % mbrfile)
 
-        full_path = cr._full_path(workdir, disk_name, "direct")
+        full_path = creator._full_path(workdir, disk_name, "direct")
         msger.debug("Installing MBR on disk %s as %s with size %s bytes" \
                     % (disk_name, full_path, disk['min_size']))
 
-        rc = runner.show(['dd', 'if=%s' % mbrfile,
-                          'of=%s' % full_path, 'conv=notrunc'])
-        if rc != 0:
+        rcode = runner.show(['dd', 'if=%s' % mbrfile,
+                             'of=%s' % full_path, 'conv=notrunc'])
+        if rcode != 0:
             raise ImageError("Unable to set MBR to %s" % full_path)
 
     @classmethod
-    def do_configure_partition(self, part, cr, cr_workdir, oe_builddir,
-                               bootimg_dir, kernel_dir, native_sysroot):
+    def do_configure_partition(cls, part, source_params, creator, cr_workdir,
+                               oe_builddir, bootimg_dir, kernel_dir,
+                               native_sysroot):
         """
         Called before do_prepare_partition(), creates syslinux config
         """
@@ -83,12 +89,11 @@ class BootimgPcbiosPlugin(SourcePlugin):
         else:
             splashline = ""
 
-        (rootdev, root_part_uuid) = cr._get_boot_config()
-        options = cr.ks.handler.bootloader.appendLine
+        options = creator.ks.handler.bootloader.appendLine
 
         syslinux_conf = ""
         syslinux_conf += "PROMPT 0\n"
-        timeout = kickstart.get_timeout(cr.ks)
+        timeout = kickstart.get_timeout(creator.ks)
         if not timeout:
             timeout = 0
         syslinux_conf += "TIMEOUT " + str(timeout) + "\n"
@@ -104,12 +109,8 @@ class BootimgPcbiosPlugin(SourcePlugin):
         kernel = "/vmlinuz"
         syslinux_conf += "KERNEL " + kernel + "\n"
 
-        if cr._ptable_format == 'msdos':
-            rootstr = rootdev
-        else:
-            raise ImageError("Unsupported partition table format found")
-
-        syslinux_conf += "APPEND label=boot root=%s %s\n" % (rootstr, options)
+        syslinux_conf += "APPEND label=boot root=%s %s\n" % \
+                             (creator.rootdev, options)
 
         msger.debug("Writing syslinux config %s/hdd/boot/syslinux.cfg" \
                     % cr_workdir)
@@ -118,22 +119,31 @@ class BootimgPcbiosPlugin(SourcePlugin):
         cfg.close()
 
     @classmethod
-    def do_prepare_partition(self, part, cr, cr_workdir, oe_builddir, bootimg_dir,
-                             kernel_dir, rootfs_dir, native_sysroot):
+    def do_prepare_partition(cls, part, source_params, creator, cr_workdir,
+                             oe_builddir, bootimg_dir, kernel_dir,
+                             rootfs_dir, native_sysroot):
         """
         Called to do the actual content population for a partition i.e. it
         'prepares' the partition to be incorporated into the image.
         In this case, prepare content for legacy bios boot partition.
         """
-        if not bootimg_dir:
+        def _has_syslinux(dirname):
+            if dirname:
+                syslinux = "%s/syslinux" % dirname
+                if os.path.exists(syslinux):
+                    return True
+            return False
+
+        if not _has_syslinux(bootimg_dir):
             bootimg_dir = get_bitbake_var("STAGING_DATADIR")
             if not bootimg_dir:
                 msger.error("Couldn't find STAGING_DATADIR, exiting\n")
+            if not _has_syslinux(bootimg_dir):
+                msger.error("Please build syslinux first\n")
             # just so the result notes display it
-            cr.set_bootimg_dir(bootimg_dir)
+            creator.set_bootimg_dir(bootimg_dir)
 
         staging_kernel_dir = kernel_dir
-        staging_data_dir = bootimg_dir
 
         hdddir = "%s/hdd/boot" % cr_workdir
 
@@ -142,7 +152,7 @@ class BootimgPcbiosPlugin(SourcePlugin):
         exec_cmd(install_cmd)
 
         install_cmd = "install -m 444 %s/syslinux/ldlinux.sys %s/ldlinux.sys" \
-            % (staging_data_dir, hdddir)
+            % (bootimg_dir, hdddir)
         exec_cmd(install_cmd)
 
         du_cmd = "du -bks %s" % hdddir
@@ -180,7 +190,7 @@ class BootimgPcbiosPlugin(SourcePlugin):
         chmod_cmd = "chmod 644 %s" % bootimg
         exec_cmd(chmod_cmd)
 
-        du_cmd = "du -Lbms %s" % bootimg
+        du_cmd = "du -Lbks %s" % bootimg
         out = exec_cmd(du_cmd)
         bootimg_size = out.split()[0]
 

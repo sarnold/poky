@@ -92,6 +92,69 @@ class PatchSet(object):
     def Refresh(self, remote = None, all = None):
         raise NotImplementedError()
 
+    @staticmethod
+    def getPatchedFiles(patchfile, striplevel, srcdir=None):
+        """
+        Read a patch file and determine which files it will modify.
+        Params:
+            patchfile: the patch file to read
+            striplevel: the strip level at which the patch is going to be applied
+            srcdir: optional path to join onto the patched file paths
+        Returns:
+            A list of tuples of file path and change mode ('A' for add,
+            'D' for delete or 'M' for modify)
+        """
+
+        def patchedpath(patchline):
+            filepth = patchline.split()[1]
+            if filepth.endswith('/dev/null'):
+                return '/dev/null'
+            filesplit = filepth.split(os.sep)
+            if striplevel > len(filesplit):
+                bb.error('Patch %s has invalid strip level %d' % (patchfile, striplevel))
+                return None
+            return os.sep.join(filesplit[striplevel:])
+
+        copiedmode = False
+        filelist = []
+        with open(patchfile) as f:
+            for line in f:
+                if line.startswith('--- '):
+                    patchpth = patchedpath(line)
+                    if not patchpth:
+                        break
+                    if copiedmode:
+                        addedfile = patchpth
+                    else:
+                        removedfile = patchpth
+                elif line.startswith('+++ '):
+                    addedfile = patchedpath(line)
+                    if not addedfile:
+                        break
+                elif line.startswith('*** '):
+                    copiedmode = True
+                    removedfile = patchedpath(line)
+                    if not removedfile:
+                        break
+                else:
+                    removedfile = None
+                    addedfile = None
+
+                if addedfile and removedfile:
+                    if removedfile == '/dev/null':
+                        mode = 'A'
+                    elif addedfile == '/dev/null':
+                        mode = 'D'
+                    else:
+                        mode = 'M'
+                    if srcdir:
+                        fullpath = os.path.abspath(os.path.join(srcdir, addedfile))
+                    else:
+                        fullpath = addedfile
+                    filelist.append((fullpath, mode))
+
+        return filelist
+
 
 class PatchTree(PatchSet):
     def __init__(self, dir, d):
@@ -115,7 +178,8 @@ class PatchTree(PatchSet):
     def _removePatchFile(self, all = False):
         if not os.path.exists(self.seriespath):
             return
-        patches = open(self.seriespath, 'r+').readlines()
+        with open(self.seriespath, 'r+') as f:
+            patches = f.readlines()
         if all:
             for p in reversed(patches):
                 self._removePatch(os.path.join(self.patchdir, p.strip()))
@@ -199,10 +263,111 @@ class PatchTree(PatchSet):
         self.Pop(all=True)
 
 class GitApplyTree(PatchTree):
+    patch_line_prefix = '%% original patch'
+
     def __init__(self, dir, d):
         PatchTree.__init__(self, dir, d)
 
+    @staticmethod
+    def extractPatchHeader(patchfile):
+        """
+        Extract just the header lines from the top of a patch file
+        """
+        lines = []
+        with open(patchfile, 'r') as f:
+            for line in f.readlines():
+                if line.startswith('Index: ') or line.startswith('diff -') or line.startswith('---'):
+                    break
+                lines.append(line)
+        return lines
+
+    @staticmethod
+    def prepareCommit(patchfile):
+        """
+        Prepare a git commit command line based on the header from a patch file
+        (typically this is useful for patches that cannot be applied with "git am" due to formatting)
+        """
+        import tempfile
+        import re
+        author_re = re.compile('[\S ]+ <\S+@\S+\.\S+>')
+        # Process patch header and extract useful information
+        lines = GitApplyTree.extractPatchHeader(patchfile)
+        outlines = []
+        author = None
+        date = None
+        for line in lines:
+            if line.startswith('Subject: '):
+                subject = line.split(':', 1)[1]
+                # Remove any [PATCH][oe-core] etc.
+                subject = re.sub(r'\[.+?\]\s*', '', subject)
+                outlines.insert(0, '%s\n\n' % subject.strip())
+                continue
+            if line.startswith('From: ') or line.startswith('Author: '):
+                authorval = line.split(':', 1)[1].strip().replace('"', '')
+                # git is fussy about author formatting i.e. it must be Name <email@domain>
+                if author_re.match(authorval):
+                    author = authorval
+                    continue
+            if line.startswith('Date: '):
+                if date is None:
+                    dateval = line.split(':', 1)[1].strip()
+                    # Very crude check for date format, since git will blow up if it's not in the right
+                    # format. Without e.g. a python-dateutils dependency we can't do a whole lot more
+                    if len(dateval) > 12:
+                        date = dateval
+                continue
+            if line.startswith('Signed-off-by: '):
+                authorval = line.split(':', 1)[1].strip().replace('"', '')
+                # git is fussy about author formatting i.e. it must be Name <email@domain>
+                if author_re.match(authorval):
+                    author = authorval
+            outlines.append(line)
+        # Write out commit message to a file
+        with tempfile.NamedTemporaryFile('w', delete=False) as tf:
+            tmpfile = tf.name
+            for line in outlines:
+                tf.write(line)
+        # Prepare git command
+        cmd = ["git", "commit", "-F", tmpfile]
+        # git doesn't like plain email addresses as authors
+        if author and '<' in author:
+            cmd.append('--author="%s"' % author)
+        if date:
+            cmd.append('--date="%s"' % date)
+        return (tmpfile, cmd)
+
+    @staticmethod
+    def extractPatches(tree, startcommit, outdir, paths=None):
+        import tempfile
+        import shutil
+        tempdir = tempfile.mkdtemp(prefix='oepatch')
+        try:
+            shellcmd = ["git", "format-patch", startcommit, "-o", tempdir]
+            if paths:
+                shellcmd.append('--')
+                shellcmd.extend(paths)
+            out = runcmd(["sh", "-c", " ".join(shellcmd)], tree)
+            if out:
+                for srcfile in out.split():
+                    patchlines = []
+                    outfile = None
+                    with open(srcfile, 'r') as f:
+                        for line in f:
+                            if line.startswith(GitApplyTree.patch_line_prefix):
+                                outfile = line.split()[-1].strip()
+                                continue
+                            patchlines.append(line)
+                    if not outfile:
+                        outfile = os.path.basename(srcfile)
+                    with open(os.path.join(outdir, outfile), 'w') as of:
+                        for line in patchlines:
+                            of.write(line)
+        finally:
+            shutil.rmtree(tempdir)
+
     def _applypatch(self, patch, force = False, reverse = False, run = True):
+        import shutil
+
         def _applypatchhelper(shellcmd, patch, force = False, reverse = False, run = True):
             if reverse:
                 shellcmd.append('-R')
@@ -214,12 +379,72 @@ class GitApplyTree(PatchTree):
 
             return runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
 
+        # Add hooks which add a pointer to the original patch file name in the commit message
+        reporoot = (runcmd("git rev-parse --show-toplevel".split(), self.dir) or '').strip()
+        if not reporoot:
+            raise Exception("Cannot get repository root for directory %s" % self.dir)
+        commithook = os.path.join(reporoot, '.git', 'hooks', 'commit-msg')
+        commithook_backup = commithook + '.devtool-orig'
+        applyhook = os.path.join(reporoot, '.git', 'hooks', 'applypatch-msg')
+        applyhook_backup = applyhook + '.devtool-orig'
+        if os.path.exists(commithook):
+            shutil.move(commithook, commithook_backup)
+        if os.path.exists(applyhook):
+            shutil.move(applyhook, applyhook_backup)
+        with open(commithook, 'w') as f:
+            # NOTE: the formatting here is significant; if you change it you'll also need to
+            # change other places which read it back
+            f.write('echo >> $1\n')
+            f.write('echo "%s: $PATCHFILE" >> $1\n' % GitApplyTree.patch_line_prefix)
+        os.chmod(commithook, 0755)
+        shutil.copy2(commithook, applyhook)
         try:
-            shellcmd = ["git", "--work-tree=.", "am", "-3", "-p%s" % patch['strippath']]
-            return _applypatchhelper(shellcmd, patch, force, reverse, run)
-        except CmdError:
-            shellcmd = ["git", "--git-dir=.", "apply", "-p%s" % patch['strippath']]
-            return _applypatchhelper(shellcmd, patch, force, reverse, run)
+            patchfilevar = 'PATCHFILE="%s"' % os.path.basename(patch['file'])
+            try:
+                shellcmd = [patchfilevar, "git", "--work-tree=%s" % reporoot, "am", "-3", "--keep-cr", "-p%s" % patch['strippath']]
+                return _applypatchhelper(shellcmd, patch, force, reverse, run)
+            except CmdError:
+                # Need to abort the git am, or we'll still be within it at the end
+                try:
+                    shellcmd = ["git", "--work-tree=%s" % reporoot, "am", "--abort"]
+                    runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+                except CmdError:
+                    pass
+                # git am won't always clean up after itself, sadly, so...
+                shellcmd = ["git", "--work-tree=%s" % reporoot, "reset", "--hard", "HEAD"]
+                runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+                # Also need to take care of any stray untracked files
+                shellcmd = ["git", "--work-tree=%s" % reporoot, "clean", "-f"]
+                runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+
+                # Fall back to git apply
+                shellcmd = ["git", "--git-dir=%s" % reporoot, "apply", "-p%s" % patch['strippath']]
+                try:
+                    output = _applypatchhelper(shellcmd, patch, force, reverse, run)
+                except CmdError:
+                    # Fall back to patch
+                    output = PatchTree._applypatch(self, patch, force, reverse, run)
+                # Add all files
+                shellcmd = ["git", "add", "-f", "-A", "."]
+                output += runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+                # Exclude the patches directory
+                shellcmd = ["git", "reset", "HEAD", self.patchdir]
+                output += runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+                # Commit the result
+                (tmpfile, shellcmd) = self.prepareCommit(patch['file'])
+                try:
+                    shellcmd.insert(0, patchfilevar)
+                    output += runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+                finally:
+                    os.remove(tmpfile)
+                return output
+        finally:
+            os.remove(commithook)
+            os.remove(applyhook)
+            if os.path.exists(commithook_backup):
+                shutil.move(commithook_backup, commithook)
+            if os.path.exists(applyhook_backup):
+                shutil.move(applyhook_backup, applyhook)
 
 
 class QuiltTree(PatchSet):
@@ -254,16 +479,15 @@ class QuiltTree(PatchSet):
         if not os.path.exists(self.dir):
             raise NotFoundError(self.dir)
         if os.path.exists(seriespath):
-            series = file(seriespath, 'r')
-            for line in series.readlines():
-                patch = {}
-                parts = line.strip().split()
-                patch["quiltfile"] = self._quiltpatchpath(parts[0])
-                patch["quiltfilemd5"] = bb.utils.md5_file(patch["quiltfile"])
-                if len(parts) > 1:
-                    patch["strippath"] = parts[1][2:]
-                self.patches.append(patch)
-            series.close()
+            with open(seriespath, 'r') as f:
+                for line in f.readlines():
+                    patch = {}
+                    parts = line.strip().split()
+                    patch["quiltfile"] = self._quiltpatchpath(parts[0])
+                    patch["quiltfilemd5"] = bb.utils.md5_file(patch["quiltfile"])
+                    if len(parts) > 1:
+                        patch["strippath"] = parts[1][2:]
+                    self.patches.append(patch)
 
             # determine which patches are applied -> self._current
             try:
@@ -285,9 +509,8 @@ class QuiltTree(PatchSet):
             self.InitFromDir()
         PatchSet.Import(self, patch, force)
         oe.path.symlink(patch["file"], self._quiltpatchpath(patch["file"]), force=True)
-        f = open(os.path.join(self.dir, "patches","series"), "a");
-        f.write(os.path.basename(patch["file"]) + " -p" + patch["strippath"]+"\n")
-        f.close()
+        with open(os.path.join(self.dir, "patches", "series"), "a") as f:
+            f.write(os.path.basename(patch["file"]) + " -p" + patch["strippath"] + "\n")
         patch["quiltfile"] = self._quiltpatchpath(patch["file"])
         patch["quiltfilemd5"] = bb.utils.md5_file(patch["quiltfile"])
 
@@ -408,13 +631,12 @@ class UserResolver(Resolver):
             bb.utils.mkdirhier(t)
             import random
             rcfile = "%s/bashrc.%s.%s" % (t, str(os.getpid()), random.random())
-            f = open(rcfile, "w")
-            f.write("echo '*** Manual patch resolution mode ***'\n")
-            f.write("echo 'Dropping to a shell, so patch rejects can be fixed manually.'\n")
-            f.write("echo 'Run \"quilt refresh\" when patch is corrected, press CTRL+D to exit.'\n")
-            f.write("echo ''\n")
-            f.write(" ".join(patchcmd) + "\n")
-            f.close()
+            with open(rcfile, "w") as f:
+                f.write("echo '*** Manual patch resolution mode ***'\n")
+                f.write("echo 'Dropping to a shell, so patch rejects can be fixed manually.'\n")
+                f.write("echo 'Run \"quilt refresh\" when patch is corrected, press CTRL+D to exit.'\n")
+                f.write("echo ''\n")
+                f.write(" ".join(patchcmd) + "\n")
             os.chmod(rcfile, 0775)
 
             self.terminal("bash --rcfile " + rcfile, 'Patch Rejects: Please fix patch rejects manually', self.patchset.d)

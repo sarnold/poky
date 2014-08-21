@@ -1,7 +1,7 @@
 SUMMARY = "GNU Transport Layer Security Library"
 HOMEPAGE = "http://www.gnu.org/software/gnutls/"
 BUGTRACKER = "https://savannah.gnu.org/support/?group=gnutls"
-DEPENDS = "zlib nettle"
+DEPENDS = "nettle"
 
 LICENSE = "GPLv3+ & LGPLv2.1+"
 LICENSE_${PN} = "LGPLv2.1+"
@@ -17,13 +17,12 @@ SHRT_VER = "${@d.getVar('PV',1).split('.')[0]}.${@d.getVar('PV',1).split('.')[1]
 
 SRC_URI = "ftp://ftp.gnutls.org/gcrypt/gnutls/v${SHRT_VER}/gnutls-${PV}.tar.xz"
 
-inherit autotools-brokensep texinfo binconfig pkgconfig gettext lib_package
+inherit autotools texinfo binconfig pkgconfig gettext lib_package
 
 EXTRA_OECONF="--disable-rpath \
               --with-included-libtasn1 \
               --enable-local-libopts \
               --with-libpthread-prefix=${STAGING_DIR_HOST}${prefix} \
-              --with-libz-prefix=${STAGING_DIR_HOST}${prefix} \
               --disable-guile \
               --disable-crywrap \
               --without-p11-kit \
@@ -34,6 +33,10 @@ do_configure_prepend() {
 		rm -f ${dir}/aclocal.m4 ${dir}/m4/libtool.m4 ${dir}/m4/lt*.m4
 	done
 }
+
+PACKAGECONFIG ??= "zlib"
+PACKAGECONFIG[tpm] = "--with-tpm, --without-tpm, trousers"
+PACKAGECONFIG[zlib] = "--with-zlib, --without-zlib, zlib"
 
 PACKAGES =+ "${PN}-openssl ${PN}-xx"
 

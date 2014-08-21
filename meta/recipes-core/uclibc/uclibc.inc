@@ -21,7 +21,7 @@ PATH_prepend = "${STAGING_BINDIR_TOOLCHAIN}.${STAGINGCC}:"
 TOOLCHAIN_OPTIONS = " --sysroot=${STAGING_DIR_TCBOOTSTRAP}"
 
 # siteconfig.bbclass runs configure which needs a working compiler
-# For the compiler to work we need a working libc yet libc isn't 
+# For the compiler to work we need a working libc yet libc isn't
 # in the sysroots directory at this point. This means the libc.so
 # linker script won't work as the --sysroot setting isn't correct.
 # Here we create a hacked up libc linker script and pass in the right
@@ -59,7 +59,6 @@ export V="2"
 #
 CFLAGS_arm := "${@oe_filter_out('-fno-omit-frame-pointer', '${CFLAGS}', d)}"
 UCLIBC_EXTRA_CFLAGS  := "${@oe_filter_out('(-I\S+|-i\S+)', '${CFLAGS}', d)}"
-UCLIBC_EXTRA_LDFLAGS := "${@oe_filter_out('(-L\S+|-l\S+)', '${LDFLAGS}', d)}"
 
 do_compile_prepend () {
   unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS
@@ -93,10 +92,12 @@ python () {
     # if we use TARGET_CC_ARCH="-march=mips32" we end up 
     # with conflicting march options to gcc. Here we
     # ask for MIPS32 ISA to match the chosen arch
-
-    if "mips32" in d.getVar("TUNE_FEATURES",True):
+    tune = d.getVar("DEFAULTTUNE", True)
+    if tune.startswith('mips32'):
+        import re
+        tune = re.sub('(el)*(-nf)*', '', tune)
         d.setVar('configmangle_append',
-                 "/^### MIPS32_CHECK$/a\\\nCONFIG_MIPS_ISA_MIPS32=y\n\n")
+                 "/^### MIPS32_CHECK$/a\\\nCONFIG_MIPS_ISA_%s=y\n\n" % (tune.upper()))
     if "${OE_FEATURES}":
         d.setVar('configmangle_append',
                    "/^### DISTRO FEATURES$/a\\\n%s\n\n" %

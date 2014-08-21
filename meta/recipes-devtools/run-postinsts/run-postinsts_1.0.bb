@@ -9,6 +9,8 @@ SRC_URI = "file://run-postinsts \
            file://run-postinsts.init \
            file://run-postinsts.service"
 
+S = "${WORKDIR}"
+
 inherit allarch systemd update-rc.d
 
 INITSCRIPT_NAME = "run-postinsts"
@@ -37,6 +39,7 @@ do_install() {
 	sed -i -e 's:#SYSCONFDIR#:${sysconfdir}:g' \
                -e 's:#SBINDIR#:${sbindir}:g' \
                -e 's:#BASE_BINDIR#:${base_bindir}:g' \
+               -e 's:#LOCALSTATEDIR#:${localstatedir}:g' \
                ${D}${sbindir}/run-postinsts \
                ${D}${systemd_unitdir}/system/run-postinsts.service
 }

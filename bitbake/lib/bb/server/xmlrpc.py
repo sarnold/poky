@@ -99,7 +99,7 @@ class BitBakeServerCommands():
         if (self.cooker.state in [bb.cooker.state.parsing, bb.cooker.state.running]):
             return None
 
-        self.event_handle = bb.event.register_UIHhandler(s)
+        self.event_handle = bb.event.register_UIHhandler(s, True)
         return self.event_handle
 
     def unregisterEventHandler(self, handlerNum):
@@ -235,12 +235,16 @@ class XMLRPCServer(SimpleXMLRPCServer, BaseImplServer):
             fds = [self]
             nextsleep = 0.1
             for function, data in self._idlefuns.items():
+                retval = None
                 try:
                     retval = function(self, data, False)
                     if retval is False:
                         del self._idlefuns[function]
                     elif retval is True:
                         nextsleep = 0
+                    elif isinstance(retval, float):
+                        if (retval < nextsleep):
+                            nextsleep = retval
                     else:
                         fds = fds + retval
                 except SystemExit:
@@ -248,6 +252,9 @@ class XMLRPCServer(SimpleXMLRPCServer, BaseImplServer):
                 except:
                     import traceback
                     traceback.print_exc()
+                    if retval == None:
+                        # the function execute failed; delete it
+                        del self._idlefuns[function]
                     pass
 
             socktimeout = self.socket.gettimeout() or nextsleep
@@ -274,12 +281,15 @@ class XMLRPCServer(SimpleXMLRPCServer, BaseImplServer):
         self.connection_token = token
 
 class BitBakeXMLRPCServerConnection(BitBakeBaseServerConnection):
-    def __init__(self, serverImpl, clientinfo=("localhost", 0), observer_only = False, featureset = []):
+    def __init__(self, serverImpl, clientinfo=("localhost", 0), observer_only = False, featureset = None):
         self.connection, self.transport = _create_server(serverImpl.host, serverImpl.port)
         self.clientinfo = clientinfo
         self.serverImpl = serverImpl
         self.observer_only = observer_only
-        self.featureset = featureset
+        if featureset:
+            self.featureset = featureset
+        else:
+            self.featureset = []
 
     def connect(self, token = None):
         if token is None:
@@ -299,6 +309,8 @@ class BitBakeXMLRPCServerConnection(BitBakeBaseServerConnection):
 
         _, error = self.connection.runCommand(["setFeatures", self.featureset])
         if error:
+            # disconnect the client, we can't make the setFeature work
+            self.connection.removeClient()
             # no need to log it here, the error shall be sent to the client
             raise BaseException(error)
 

@@ -22,9 +22,12 @@ SRC_URI = "ftp://space.mit.edu/pub/davis/slang/v2.2/slang-${PV}.tar.bz2 \
            file://change-char-type-to-signed-char-in-macros.patch \
            file://sprintf-bug-concerning-8-bit-characters.patch \
            file://slang-fix-the-iconv-existence-checking.patch \
+           file://0001-Fix-error-conflicting-types-for-posix_close.patch \
           "
 
 inherit autotools-brokensep
+
+CLEANBROKEN = "1"
 
 SRC_URI[md5sum] = "7fcfd447e378f07dd0c0bae671fe6487"
 SRC_URI[sha256sum] = "9a8257a9a2a55099af858b13338dc8f3a06dd2069f46f0df2c9c3bb84a01d5db"
@@ -47,3 +50,5 @@ FILES_${PN} += "${libdir}/${BPN}/v2/modules/ ${datadir}/slsh/"
 FILES_${PN}-dbg += "${libdir}/${BPN}/v2/modules/.debug"
 
 PARALLEL_MAKE = ""
+
+BBCLASSEXTEND = "native"

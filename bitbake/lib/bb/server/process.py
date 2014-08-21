@@ -38,13 +38,17 @@ from . import BitBakeBaseServer, BitBakeBaseServerConnection, BaseImplServer
 logger = logging.getLogger('BitBake')
 
 class ServerCommunicator():
-    def __init__(self, connection, event_handle):
+    def __init__(self, connection, event_handle, server):
         self.connection = connection
         self.event_handle = event_handle
+        self.server = server
 
     def runCommand(self, command):
         # @todo try/except
         self.connection.send(command)
+
+        if not self.server.is_alive():
+            raise SystemExit
 
         while True:
             # don't let the user ctrl-c while we're waiting for a response
@@ -93,7 +97,7 @@ class ProcessServer(Process, BaseImplServer):
     def run(self):
         for event in bb.event.ui_queue:
             self.event_queue.put(event)
-        self.event_handle.value = bb.event.register_UIHhandler(self)
+        self.event_handle.value = bb.event.register_UIHhandler(self, True)
 
         bb.cooker.server_main(self.cooker, self.main)
 
@@ -110,8 +114,12 @@ class ProcessServer(Process, BaseImplServer):
                 if self.quitout.poll():
                     self.quitout.recv()
                     self.quit = True
+                    try:
+                        self.runCommand(["stateForceShutdown"])
+                    except:
+                        pass
 
-                self.idle_commands(.1, [self.event_queue._reader, self.command_channel, self.quitout])
+                self.idle_commands(.1, [self.command_channel, self.quitout])
             except Exception:
                 logger.exception('Running command %s', command)
 
@@ -119,9 +127,12 @@ class ProcessServer(Process, BaseImplServer):
         bb.event.unregister_UIHhandler(self.event_handle.value)
         self.command_channel.close()
         self.cooker.shutdown(True)
+        self.quitout.close()
 
-    def idle_commands(self, delay, fds = []):
+    def idle_commands(self, delay, fds=None):
         nextsleep = delay
+        if not fds:
+            fds = []
 
         for function, data in self._idlefuns.items():
             try:
@@ -131,14 +142,20 @@ class ProcessServer(Process, BaseImplServer):
                     nextsleep = None
                 elif retval is True:
                     nextsleep = None
+                elif isinstance(retval, float):
+                    if (retval < nextsleep):
+                        nextsleep = retval
                 elif nextsleep is None:
                     continue
                 else:
                     fds = fds + retval
             except SystemExit:
                 raise
-            except Exception:
-                logger.exception('Running idle function')
+            except Exception as exc:
+                if not isinstance(exc, bb.BBHandledException):
+                    logger.exception('Running idle function')
+                del self._idlefuns[function]
+                self.quit = True
 
         if nextsleep is not None:
             select.select(fds,[],[],nextsleep)
@@ -158,14 +175,18 @@ class BitBakeProcessServerConnection(BitBakeBaseServerConnection):
         self.procserver = serverImpl
         self.ui_channel = ui_channel
         self.event_queue = event_queue
-        self.connection = ServerCommunicator(self.ui_channel, self.procserver.event_handle)
+        self.connection = ServerCommunicator(self.ui_channel, self.procserver.event_handle, self.procserver)
         self.events = self.event_queue
+        self.terminated = False
 
     def sigterm_terminate(self):
         bb.error("UI received SIGTERM")
         self.terminate()
 
     def terminate(self):
+        if self.terminated:
+            return
+        self.terminated = True
         def flushevents():
             while True:
                 try:
@@ -197,14 +218,20 @@ class ProcessEventQueue(multiprocessing.queues.Queue):
 
     def waitEvent(self, timeout):
         if self.exit:
-            raise KeyboardInterrupt()
+            sys.exit(1)
         try:
+            if not self.server.is_alive():
+                self.setexit()
+                return None
             return self.get(True, timeout)
         except Empty:
             return None
 
     def getEvent(self):
         try:
+            if not self.server.is_alive():
+                self.setexit()
+                return None
             return self.get(False)
         except Empty:
             return None
@@ -219,6 +246,7 @@ class BitBakeServer(BitBakeBaseServer):
         self.ui_channel, self.server_channel = Pipe()
         self.event_queue = ProcessEventQueue(0)
         self.serverImpl = ProcessServer(self.server_channel, self.event_queue, None)
+        self.event_queue.server = self.serverImpl
 
     def detach(self):
         self.serverImpl.start()

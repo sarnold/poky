@@ -51,6 +51,24 @@
         that produce executable binaries (such as building the cross-compiler
         and a C library as pre-requisites, and splitting out of debug symbols
         during packaging).
+        <note>
+            <para>Unlike some distro recipes (e.g. Debian), OpenEmbedded recipes
+            that produce packages that depend on tunings through use of the
+            <link linkend='var-RDEPENDS'><filename>RDEPENDS</filename></link>
+            and
+            <link linkend='var-TUNE_PKGARCH'><filename>TUNE_PKGARCH</filename></link>
+            variables, should never be configured for all architectures
+            using <filename>allarch</filename>.
+            This is the case even if the recipes do not produce
+            architecture-specific output.</para>
+            <para>Configuring such recipes for all architectures causes the
+            <link linkend='ref-tasks-package_write_deb'><filename>do_package_write_*</filename></link>
+            tasks to have different signatures for the machines with different
+            tunings.
+            Additionally, unnecessary rebuilds occur every time an
+            image for a different <filename>MACHINE</filename> is built
+            even when the recipe never changes.</para>
+        </note>
     </para>
 
     <para>
@@ -77,73 +95,52 @@
         For more details on the source archiver, see the
         "<ulink url='&YOCTO_DOCS_DEV_URL;#maintaining-open-source-license-compliance-during-your-products-lifecycle'>Maintaining Open Source License Compliance During Your Product's Lifecycle</ulink>"
         section in the Yocto Project Development Manual.
+        You can also see the
+        <link linkend='var-ARCHIVER_MODE'><filename>ARCHIVER_MODE</filename></link>
+        variable for information about the variable flags (varflags)
+        that help control archive creation.
     </para>
 </section>
 
 <section id='ref-classes-autotools'>
-    <title><filename>autotools.bbclass</filename></title>
+    <title><filename>autotools*.bbclass</filename></title>
 
     <para>
-        The <filename>autotools</filename> class supports Autotooled
+        The <filename>autotools*</filename> classes support Autotooled
         packages.
     </para>
 
     <para>
         The <filename>autoconf</filename>, <filename>automake</filename>,
-        and <filename>libtool</filename> bring standardization.
-        This class defines a set of tasks (configure, compile etc.) that
+        and <filename>libtool</filename> packages bring standardization.
+        This class defines a set of tasks (e.g.
+        <filename>configure</filename>, <filename>compile</filename> and
+        so forth) that
         work for all Autotooled packages.
         It should usually be enough to define a few standard variables
         and then simply <filename>inherit autotools</filename>.
-        This class can also work with software that emulates Autotools.
+        These classes can also work with software that emulates Autotools.
         For more information, see the
         "<ulink url='&YOCTO_DOCS_DEV_URL;#new-recipe-autotooled-package'>Autotooled Package</ulink>"
         section in the Yocto Project Development Manual.
     </para>
 
     <para>
-        It's useful to have some idea of how the tasks defined by this class work
-        and what they do behind the scenes.
-        <itemizedlist>
-            <listitem><para><link linkend='ref-tasks-configure'><filename>do_configure</filename></link> &dash; Regenerates the
-                configure script (using <filename>autoreconf</filename>) and then launches it
-                with a standard set of arguments used during cross-compilation.
-                You can pass additional parameters to <filename>configure</filename> through the
-                <filename><link linkend='var-EXTRA_OECONF'>EXTRA_OECONF</link></filename> variable.
-                </para></listitem>
-            <listitem><para><link linkend='ref-tasks-compile'><filename>do_compile</filename></link> &dash; Runs <filename>make</filename> with
-                arguments that specify the compiler and linker.
-                You can pass additional arguments through
-                the <filename><link linkend='var-EXTRA_OEMAKE'>EXTRA_OEMAKE</link></filename> variable.
-                </para></listitem>
-            <listitem><para><link linkend='ref-tasks-install'><filename>do_install</filename></link> &dash; Runs <filename>make install</filename>
-                and passes in
-                <filename>${</filename><link linkend='var-D'><filename>D</filename></link><filename>}</filename>
-                as <filename>DESTDIR</filename>.
-                </para></listitem>
-        </itemizedlist>
+        By default, the <filename>autotools*</filename> classes
+        use out-of-tree builds (i.e.
+        <filename>autotools.bbclass</filename> and
+        <filename>autotools_stage.bbclass</filename>).
+        (<link linkend='var-B'><filename>B</filename></link> <filename>!=</filename>
+        <link linkend='var-S'><filename>S</filename></link>).
     </para>
 
-    <note>
-        It is planned for future Yocto Project releases that by default, the
-        <filename>autotools</filename> class supports out-of-tree builds
-        (<link linkend='var-B'><filename>B</filename></link> !=
-        <link linkend='var-S'><filename>S</filename></link>).
-        If your recipes do not support out-of-tree builds, you should
-        have them inherit the
-        <link linkend='ref-classes-autotools-brokensep'><filename>autotools-brokensep</filename></link>
-        class.
-    </note>
-</section>
-
-<section id='ref-classes-autotools-brokensep'>
-    <title><filename>autotools-brokensep.bbclass</filename></title>
-
     <para>
+        If the software being built by a recipe does not support
+        using out-of-tree builds, you should have the recipe inherit the
+        <filename>autotools-brokensep</filename> class.
         The <filename>autotools-brokensep</filename> class behaves the same
-        as the
-        <link linkend='ref-classes-autotools'><filename>autotools</filename></link>
-        class but builds with
+        as the <filename>autotools</filename> and
+        <filename>autotools_stage</filename> classes but builds with
         <link linkend='var-B'><filename>B</filename></link> ==
         <link linkend='var-S'><filename>S</filename></link>.
         This method is useful when out-of-tree build support is either not
@@ -152,6 +149,34 @@
             It is recommended that out-of-tree support be fixed and used
             if at all possible.
         </note>
+    </para>
+
+    <para>
+        It's useful to have some idea of how the tasks defined by
+        the <filename>autotools*</filename> classes work and what they do
+        behind the scenes.
+        <itemizedlist>
+            <listitem><para><link linkend='ref-tasks-configure'><filename>do_configure</filename></link> -
+                Regenerates the
+                configure script (using <filename>autoreconf</filename>) and
+                then launches it with a standard set of arguments used during
+                cross-compilation.
+                You can pass additional parameters to
+                <filename>configure</filename> through the
+                <filename><link linkend='var-EXTRA_OECONF'>EXTRA_OECONF</link></filename> variable.
+                </para></listitem>
+            <listitem><para><link linkend='ref-tasks-compile'><filename>do_compile</filename></link> -
+                Runs <filename>make</filename> with arguments that specify the
+                compiler and linker.
+                You can pass additional arguments through
+                the <filename><link linkend='var-EXTRA_OEMAKE'>EXTRA_OEMAKE</link></filename> variable.
+                </para></listitem>
+            <listitem><para><link linkend='ref-tasks-install'><filename>do_install</filename></link> -
+                Runs <filename>make install</filename> and passes in
+                <filename>${</filename><link linkend='var-D'><filename>D</filename></link><filename>}</filename>
+                as <filename>DESTDIR</filename>.
+                </para></listitem>
+        </itemizedlist>
     </para>
 </section>
 
@@ -186,16 +211,26 @@
         binary from source.
         The binary package is extracted and new packages in the configured
         output package format are created.
+        Extraction and installation of proprietary binaries is a good example
+        use for this class.
         <note>
             For RPMs and other packages that do not contain a subdirectory,
-            you should specify a "subdir" parameter.
+            you should specify an appropriate fetcher parameter to point to
+            the subdirectory.
+            For example, if BitBake is using the Git fetcher
+            (<filename>git://</filename>), the "subpath" parameter limits
+            the checkout to a specific subpath of the tree.
             Here is an example where <filename>${BP}</filename> is used so that
             the files are extracted into the subdirectory expected by the
             default value of
             <link linkend='var-S'><filename>S</filename></link>:
             <literallayout class='monospaced'>
-     SRC_URI = "http://example.com/downloads/somepackage.rpm;subdir=${BP}"
+     SRC_URI = "git://example.com/downloads/somepackage.rpm;subpath=${BP}"
             </literallayout>
+            See the
+            "<ulink url='&YOCTO_DOCS_BB_URL;#bb-fetchers'>Fetchers</ulink>"
+            section in the BitBake User Manual for more information on
+            supported BitBake Fetchers.
         </note>
     </para>
 </section>
@@ -229,6 +264,21 @@
     </para>
 </section>
 
+<section id='ref-classes-binconfig-disabled'>
+    <title><filename>binconfig-disabled.bbclass</filename></title>
+
+    <para>
+        An alternative version of the
+        <link linkend='ref-classes-binconfig'><filename>binconfig</filename></link>
+        class, which disables binary configuration scripts by making them
+        return an error in favor of using <filename>pkg-config</filename>
+        to query the information.
+        The scripts to be disabled should be specified using the
+        <link linkend='var-BINCONFIG'><filename>BINCONFIG</filename></link>
+        variable within the recipe inheriting the class.
+    </para>
+</section>
+
 <section id='ref-classes-blacklist'>
     <title><filename>blacklist.bbclass</filename></title>
 
@@ -249,6 +299,23 @@
      INHERIT += "blacklist"
      PNBLACKLIST[exoticware] = "Not supported by our organization."
         </literallayout>
+    </para>
+</section>
+
+<section id='ref-classes-bluetooth'>
+    <title><filename>bluetooth.bbclass</filename></title>
+
+    <para>
+        The <filename>bluetooth</filename> class defines a variable that
+        expands to the recipe (package) providing core
+        bluetooth support on the platform.
+    </para>
+
+    <para>
+        For details on how the class works, see the
+        <filename>meta/classes/bluetooth.bbclass</filename> file in the Yocto
+        Project
+        <ulink url='&YOCTO_DOCS_DEV_URL;#source-directory'>Source Directory</ulink>.
     </para>
 </section>
 
@@ -364,6 +431,18 @@
     </para>
 </section>
 
+<section id='ref-classes-buildstats-summary'>
+    <title><filename>buildstats-summary.bbclass</filename></title>
+
+    <para>
+        When inherited globally, prints statistics at the end of the build
+        on sstate re-use.
+        In order to function, this class requires the
+        <link linkend='ref-classes-buildstats'><filename>buildstats</filename></link>
+        class be enabled.
+    </para>
+</section>
+
 <section id='ref-classes-ccache'>
     <title><filename>ccache.bbclass</filename></title>
 
@@ -431,6 +510,19 @@
     </para>
 </section>
 
+<section id='ref-classes-compress_doc'>
+    <title><filename>compress_doc.bbclass</filename></title>
+
+    <para>
+        Enables compression for man pages and info pages.
+        This class is intended to be inherited globally.
+        The default compression mechanism is gz (gzip) but you can
+        select an alternative mechanism by setting the
+        <link linkend='var-DOC_COMPRESS'><filename>DOC_COMPRESS</filename></link>
+        variable.
+    </para>
+</section>
+
 <section id='ref-classes-copyleft_compliance'>
     <title><filename>copyleft_compliance.bbclass</filename></title>
 
@@ -442,6 +534,20 @@
         deprecated in favor of the
         <link linkend='ref-classes-archiver'><filename>archiver</filename></link>
         class.
+    </para>
+</section>
+
+<section id='ref-classes-copyleft_filter'>
+    <title><filename>copyleft_filter.bbclass</filename></title>
+
+    <para>
+        A class used by the
+        <link linkend='ref-classes-archiver'><filename>archiver</filename></link>
+        and
+        <link linkend='ref-classes-copyleft_compliance'><filename>copyleft_compliance</filename></link>
+        classes for filtering licenses.
+        The <filename>copyleft_filter</filename> class is an internal class
+        and is not intended to be used directly.
     </para>
 </section>
 
@@ -458,10 +564,10 @@
 </section>
 
 <section id='ref-classes-cpan'>
-    <title><filename>cpan.bbclass</filename></title>
+    <title><filename>cpan*.bbclass</filename></title>
 
     <para>
-        The <filename>cpan</filename> class supports Perl modules.
+        The <filename>cpan*</filename> classes support Perl modules.
     </para>
 
     <para>
@@ -480,6 +586,8 @@
                 using <filename>cpan_build.bbclass</filename> in their recipes.
                 </para></listitem>
         </itemizedlist>
+        Both build methods inherit the <filename>cpan-base</filename> class
+        for basic Perl support.
     </para>
 </section>
 
@@ -523,8 +631,8 @@
 
     <para>
         The <filename>debian</filename> class renames output packages so that
-        they follow the Debian naming policy (i.e. <filename>eglibc</filename>
-        becomes <filename>libc6</filename> and <filename>eglibc-devel</filename>
+        they follow the Debian naming policy (i.e. <filename>glibc</filename>
+        becomes <filename>libc6</filename> and <filename>glibc-devel</filename>
         becomes <filename>libc6-dev</filename>.)
         Renaming includes the library name and version as part of the package
         name.
@@ -613,25 +721,20 @@
 
     <para>
         The class is not included by default.
-        To use it, you must include the following files and set the
+        To use it, you must set the
         <link linkend='var-INHERIT'><filename>INHERIT</filename></link>
         variable:
         <literallayout class='monospaced'>
-     include conf/distro/include/distro_alias.inc
-     include conf/distro/include/recipe_color.inc
-     include conf/distro/include/maintainers.inc
-     include conf/distro/include/upstream_tracking.inc
-     include conf/distro/include/package_regex.inc
      INHERIT+= "distrodata"
         </literallayout>
     </para>
 </section>
 
 <section id='ref-classes-distutils'>
-    <title><filename>distutils.bbclass</filename></title>
+    <title><filename>distutils*.bbclass</filename></title>
 
     <para>
-        The <filename>distutils</filename> class supports recipes for Python
+        The <filename>distutils*</filename> classes support recipes for Python
         version 2.x extensions, which are simple.
         These recipes usually only need to point to the source's archive and
         then inherit the proper class.
@@ -639,8 +742,8 @@
         module authors used.
         <itemizedlist>
             <listitem><para>Extensions that use an Autotools-based build system
-                require Autotools and
-                <filename>distutils</filename>-based classes in their recipes.
+                require Autotools and the classes based on
+                <filename>distutils</filename> in their recipes.
                 </para></listitem>
             <listitem><para>Extensions that use build systems based on
                 <filename>distutils</filename> require
@@ -652,18 +755,26 @@
                 class in their recipes.
                 </para></listitem>
         </itemizedlist>
+        The <filename>distutils-common-base</filename> class is required by
+        some of the <filename>distutils*</filename> classes to provide common
+        Python2 support.
+    </para>
+
+    <para>
+	    The <filename>distutils-tools</filename> class supports recipes for
+        additional "distutils" tools.
     </para>
 </section>
 
 <section id='ref-classes-distutils3'>
-    <title><filename>distutils3.bbclass</filename></title>
+    <title><filename>distutils3*.bbclass</filename></title>
 
     <para>
-        The <filename>distutils3</filename> class supports recipes for Python
+        The <filename>distutils3*</filename> classes support recipes for Python
         version 3.x extensions, which are simple.
         These recipes usually only need to point to the source's archive and
         then inherit the proper class.
-        Building is split into two methods depending on which method the
+        Building is split into three methods depending on which method the
         module authors used.
         <itemizedlist>
             <listitem><para>Extensions that use an Autotools-based build system
@@ -680,6 +791,14 @@
                 class in their recipes.
                 </para></listitem>
         </itemizedlist>
+        The <filename>distutils3*</filename> classes either inherit their
+        corresponding <filename>distutils*</filename> class or replicate them
+        using a Python3 version instead (e.g.
+        <filename>distutils3-base</filename> inherits
+        <filename>distutils-common-base</filename>, which is the same as
+        <filename>distutils-base</filename> but inherits
+        <filename>python3native</filename> instead of
+        <filename>pythonnative</filename>).
     </para>
 </section>
 
@@ -782,7 +901,7 @@
         <literallayout class='monospaced'>
      inherit extrausers
      EXTRA_USERS_PARAMS = "\
-         useradd -P 1876*18 root; \
+         usermod -P 1876*18 root; \
          "
         </literallayout>
     </para>
@@ -808,6 +927,19 @@
         package, set
         <link linkend='var-FONT_PACKAGES'><filename>FONT_PACKAGES</filename></link>
         to specify the packages containing the fonts.
+    </para>
+</section>
+
+<section id='ref-classes-fs-uuid'>
+    <title><filename>fs-uuid.bbclass</filename></title>
+
+    <para>
+        The <filename>fs-uuid</filename> class extracts UUID from
+        <filename>${</filename><link linkend='var-ROOTFS'><filename>ROOTFS</filename></link><filename>}</filename>,
+        which must have been built by the time that this function gets called.
+        The <filename>fs-uuid</filename> class only works on
+        <filename>ext</filename> file systems and depends on
+        <filename>tune2fs</filename>.
     </para>
 </section>
 
@@ -980,6 +1112,36 @@
     </para>
 </section>
 
+<section id='ref-classes-gummiboot'>
+    <title><filename>gummiboot.bbclass</filename></title>
+
+    <para>
+        The <filename>gummiboot</filename> class provides functions specific
+        to the gummiboot bootloader for building bootable images.
+        This is an internal class and is not intended to be
+        used directly.
+        Set the
+        <link linkend='var-EFI_PROVIDER'><filename>EFI_PROVIDER</filename></link>
+        variable to "gummiboot" to use this class.
+    </para>
+
+    <para>
+        For information on more variables used and supported in this class,
+        see the
+        <link linkend='var-GUMMIBOOT_CFG'><filename>GUMMIBOOT_CFG</filename></link>,
+        <link linkend='var-GUMMIBOOT_ENTRIES'><filename>GUMMIBOOT_ENTRIES</filename></link>,
+        and
+        <link linkend='var-GUMMIBOOT_TIMEOUT'><filename>GUMMIBOOT_TIMEOUT</filename></link>
+        variables.
+    </para>
+
+    <para>
+        You can also see the
+        <ulink url='http://freedesktop.org/wiki/Software/gummiboot/'>Gummiboot documentation</ulink>
+        for more information.
+    </para>
+</section>
+
 <section id='ref-classes-gzipnative'>
     <title><filename>gzipnative.bbclass</filename></title>
 
@@ -1090,7 +1252,7 @@
         <link linkend='var-ICECC_DISABLED'><filename>ICECC_DISABLED</filename></link>
         variable to "1" as follows:
         <literallayout class='monospaced'>
-     INHERIT_DISTRO += "icecc"
+     INHERIT_DISTRO_append = " icecc"
      ICECC_DISABLED ??= "1"
         </literallayout>
         This practice makes sure everyone is using the same signatures but also
@@ -1128,6 +1290,15 @@
         For information on how images are created, see the
         "<link linkend='images-dev-environment'>Images</link>" section elsewhere
         in this manual.
+    </para>
+</section>
+
+<section id='ref-classes-image-buildinfo'>
+    <title><filename>image-buildinfo.bbclass</filename></title>
+
+    <para>
+        The <filename>image-buildinfo</filename> class writes information
+        to the target filesystem on <filename>/etc/build</filename>.
     </para>
 </section>
 
@@ -1240,7 +1411,18 @@
         the OpenEmbedded build process.
         <note>
             This class is currently unmaintained.
+            The <filename>strace</filename> package needs to be installed
+            in the build host as a dependency for this tool.
         </note>
+    </para>
+</section>
+
+<section id='ref-classes-image-vm'>
+    <title><filename>image-vm.bbclass</filename></title>
+
+    <para>
+        The <filename>image-vm</filename> class supports building VM
+        images.
     </para>
 </section>
 
@@ -1333,6 +1515,35 @@
                 Currently, this test triggers too many false positives and
                 thus is not normally enabled.
                 </para></listitem>
+            <listitem><para><emphasis><filename>build-deps:</filename></emphasis>
+                Determines if a build-time dependency that is specified through
+                <link linkend='var-DEPENDS'><filename>DEPENDS</filename></link>,
+                explicit
+                <link linkend='var-RDEPENDS'><filename>RDEPENDS</filename></link>,
+                or task-level dependencies exists to match any runtime
+                dependency.
+                This determination is particularly useful to discover where
+                runtime dependencies are detected and added during packaging.
+                If no explicit dependency has been specified within the
+                metadata, at the packaging stage it is too late to ensure that
+                the dependency is built, and thus you can end up with an
+                error when the package is installed into the image during the
+                <link linkend='ref-tasks-rootfs'><filename>do_rootfs</filename></link>
+                task because the auto-detected dependency was not satisfied.
+                An example of this would be where the
+                <link linkend='ref-classes-update-rc.d'><filename>update-rc.d</filename></link>
+                class automatically adds a dependency on the
+                <filename>initscripts-functions</filename> package to packages
+                that install an initscript that refers to
+                <filename>/etc/init.d/functions</filename>.
+                The recipe should really have an explicit
+                <filename>RDEPENDS</filename> for the package in question on
+                <filename>initscripts-functions</filename> so that the
+                OpenEmbedded build system is able to ensure that the
+                <filename>initscripts</filename> recipe is actually built and
+                thus the <filename>initscripts-functions</filename> package is
+                made available.
+                </para></listitem>
             <listitem><para><emphasis><filename>compile-host-path:</filename></emphasis>
                 Checks the
                 <link linkend='ref-tasks-compile'><filename>do_compile</filename></link>
@@ -1383,6 +1594,25 @@
                 them.
                 Some very rare cases do exist for dynamically loaded modules where
                 these symlinks are needed instead in the main package.
+                </para></listitem>
+            <listitem><para><emphasis><filename>file-rdeps:</filename></emphasis>
+                Checks that file-level dependencies identified by the
+                OpenEmbedded build system at packaging time are satisfied.
+                For example, a shell script might start with the line
+                <filename>#!/bin/bash</filename>.
+                This line would translate to a file dependency on
+                <filename>/bin/bash</filename>.
+                Of the three package managers that the OpenEmbedded build
+                system supports, only RPM directly handles file-level
+                dependencies, resolving them automatically to packages
+                providing the files.
+                However, the lack of that functionality in the other two
+                package managers does not mean the dependencies do not still
+                need resolving.
+                This QA check attempts to ensure that explicitly declared
+                <link linkend='var-RDEPENDS'><filename>RDEPENDS</filename></link>
+                exist to handle any file-level dependency detected in
+                packaged files.
                 </para></listitem>
             <listitem><para><emphasis><filename>files-invalid:</filename></emphasis>
                 Checks for
@@ -1545,7 +1775,11 @@
             <listitem><para><emphasis><filename>textrel:</filename></emphasis>
                 Checks for ELF binaries that contain relocations in their
                 <filename>.text</filename> sections, which can result in a
-                performance impact at runtime.</para></listitem>
+                performance impact at runtime.
+                See the explanation for the
+                <link linkend='qa-issue-textrel'><filename>ELF binary</filename></link>
+                message for more information regarding runtime performance issues.
+                </para></listitem>
             <listitem><para><emphasis><filename>unsafe-references-in-binaries:</filename></emphasis>
                 Reports when a binary installed in
                 <filename>${base_libdir}</filename>,
@@ -1692,6 +1926,25 @@
     </para>
 </section>
 
+<section id='ref-classes-kernel-fitimage'>
+    <title><filename>kernel-fitimage.bbclass</filename></title>
+
+    <para>
+        The <filename>kernel-fitimage</filename> class provides support to
+        pack zImages.
+    </para>
+</section>
+
+<section id='ref-classes-kernel-grub'>
+    <title><filename>kernel-grub.bbclass</filename></title>
+
+    <para>
+        The <filename>kernel-grub</filename> class updates the boot area and
+        the boot menu with the kernel as the priority boot mechanism while
+        installing a RPM to update the kernel on a deployed target.
+    </para>
+</section>
+
 <section id='ref-classes-kernel-module-split'>
     <title><filename>kernel-module-split.bbclass</filename></title>
 
@@ -1702,6 +1955,24 @@
     </para>
 </section>
 
+<section id='ref-classes-kernel-uboot'>
+    <title><filename>kernel-uboot.bbclass</filename></title>
+
+    <para>
+        The <filename>kernel-uboot</filename> class provides support for
+        building from vmlinux-style kernel sources.
+    </para>
+</section>
+
+<section id='ref-classes-kernel-uimage'>
+    <title><filename>kernel-uimage.bbclass</filename></title>
+
+    <para>
+        The <filename>kernel-uimage</filename> class provides support to
+        pack uImage.
+    </para>
+</section>
+
 <section id='ref-classes-kernel-yocto'>
     <title><filename>kernel-yocto.bbclass</filename></title>
 
@@ -1709,6 +1980,15 @@
         The <filename>kernel-yocto</filename> class
         provides common functionality for building from linux-yocto style
         kernel source repositories.
+    </para>
+</section>
+
+<section id='ref-classes-kernelsrc'>
+    <title><filename>kernelsrc.bbclass</filename></title>
+
+    <para>
+        The <filename>kernelsrc</filename> class sets the Linux kernel
+        source and version.
     </para>
 </section>
 
@@ -1723,6 +2003,25 @@
         Instead, the binaries are added to a separate
         <filename>${</filename><link linkend='var-PN'><filename>PN</filename></link><filename>}-bin</filename>
         package to make their installation optional.
+    </para>
+</section>
+
+<section id='ref-classes-libc*'>
+    <title><filename>libc*.bbclass</filename></title>
+
+    <para>
+        The <filename>libc*</filename> classes support recipes that build
+        packages with <filename>libc</filename>:
+        <itemizedlist>
+            <listitem><para>The <filename>libc-common</filename> class
+                provides common support for building with
+                <filename>libc</filename>.
+                </para></listitem>
+            <listitem><para>The <filename>libc-package</filename> class
+                supports packaging up <filename>glibc</filename> and
+                <filename>eglibc</filename>.
+                </para></listitem>
+        </itemizedlist>
     </para>
 </section>
 
@@ -1747,6 +2046,16 @@
         kernel source tree.
         These builds goes beyond the kernel itself.
         For example, the Perf recipe also inherits this class.
+    </para>
+</section>
+
+<section id='ref-classes-linuxloader'>
+    <title><filename>linuxloader.bbclass</filename></title>
+
+    <para>
+        Provides the function <filename>linuxloader()</filename>, which gives
+        the value of the dynamic loader/linker provided on the platform.
+        This value is used by a number of other classes.
     </para>
 </section>
 
@@ -1792,6 +2101,15 @@
         starting every build.
         The <filename>metadata_scm</filename> class is enabled by default
         because it is inherited by the <filename>base</filename> class.
+    </para>
+</section>
+
+<section id='ref-classes-migrate_localcount'>
+    <title><filename>migrate_localcount.bbclass</filename></title>
+
+    <para>
+        The <filename>migrate_localcount</filename> class verifies a recipe's
+        localcount data and increments it appropriately.
     </para>
 </section>
 
@@ -1896,7 +2214,7 @@
         You can create a recipe that builds tools that run natively on the
         host a couple different ways:
         <itemizedlist>
-            <listitem><para>Create a <filename>myrecipe-native.bb</filename>
+            <listitem><para>Create a <replaceable>myrecipe</replaceable><filename>-native.bb</filename>
                 that inherits the <filename>native</filename> class.
                 If you use this method, you must order the inherit statement
                 in the recipe after all other inherit statements so that the
@@ -1937,7 +2255,8 @@
         You can create a recipe that builds tools that run on the SDK machine
         a couple different ways:
         <itemizedlist>
-            <listitem><para>Create a <filename>myrecipe-nativesdk.bb</filename>
+            <listitem><para>Create a
+                <filename>nativesdk-</filename><replaceable>myrecipe</replaceable><filename>.bb</filename>
                 recipe that inherits the <filename>nativesdk</filename> class.
                 If you use this method, you must order the inherit statement
                 in the recipe after all other inherit statements so that the
@@ -1976,7 +2295,7 @@
     </para>
 
     <para>
-        A number of classes exist that are could be generally useful in
+        A number of classes exist that could be generally useful in
         OE-Core but are never actually used within OE-Core itself.
         The <filename>oelint</filename> class is one such example.
         However, being aware of this class can reduce the proliferation of
@@ -2025,6 +2344,11 @@
         <link linkend='ref-classes-package_ipk'><filename>package_ipk</filename></link>,
         and
         <link linkend='ref-classes-package_tar'><filename>package_tar</filename></link>.
+        <note><title>Warning</title>
+            The <filename>package_tar</filename> class is broken and not
+            supported.
+            It is recommended that you do not use this class.
+        </note>
     </para>
 
     <para>
@@ -2102,11 +2426,12 @@
 
     <para>
         The <filename>package_deb</filename> class
-        provides support for creating packages that use the
-        <filename>.deb</filename> file format.
-        The class ensures the packages are written out to the
-        <filename>${</filename><link linkend='var-DEPLOY_DIR'><filename>DEPLOY_DIR</filename></link><filename>}/deb</filename>
-        directory in a <filename>.deb</filename> file format.
+        provides support for creating packages that use the Debian
+        (i.e. <filename>.deb</filename>) file format.
+        The class ensures the packages are written out in a
+        <filename>.deb</filename> file format to the
+        <filename>${</filename><link linkend='var-DEPLOY_DIR_DEB'><filename>DEPLOY_DIR_DEB</filename></link><filename>}</filename>
+        directory.
     </para>
 
     <para>
@@ -2123,11 +2448,12 @@
 
     <para>
         The <filename>package_ipk</filename> class
-        provides support for creating packages that use the
-        <filename>.ipk</filename> file format.
-        The class ensures the packages are written out to the
-        <filename>${</filename><link linkend='var-DEPLOY_DIR'><filename>DEPLOY_DIR</filename></link><filename>}/ipk</filename>
-        directory in a <filename>.ipk</filename> file format.
+        provides support for creating packages that use the IPK
+        (i.e. <filename>.ipk</filename>) file format.
+        The class ensures the packages are written out in a
+        <filename>.ipk</filename> file format to the
+        <filename>${</filename><link linkend='var-DEPLOY_DIR_IPK'><filename>DEPLOY_DIR_IPK</filename></link><filename>}</filename>
+        directory.
     </para>
 
     <para>
@@ -2143,12 +2469,13 @@
     <title><filename>package_rpm.bbclass</filename></title>
 
     <para>
-        The <filename>package_deb</filename> class
-        provides support for creating packages that use the
-        <filename>.rpm</filename> file format.
-        The class ensures the packages are written out to the
-        <filename>${</filename><link linkend='var-DEPLOY_DIR'><filename>DEPLOY_DIR</filename></link><filename>}/rpm</filename>
-        directory in a <filename>.rpm</filename> file format.
+        The <filename>package_rpm</filename> class
+        provides support for creating packages that use the RPM
+        (i.e. <filename>.rpm</filename>) file format.
+        The class ensures the packages are written out in a
+        <filename>.rpm</filename> file format to the
+        <filename>${</filename><link linkend='var-DEPLOY_DIR_RPM'><filename>DEPLOY_DIR_RPM</filename></link><filename>}</filename>
+        directory.
     </para>
 
     <para>
@@ -2164,12 +2491,12 @@
     <title><filename>package_tar.bbclass</filename></title>
 
     <para>
-        The <filename>package_tar</filename>
-        class provides support for creating packages that use the
-        <filename>.tar</filename> file format.
-        The class ensures the packages are written out to the
-        <filename>${</filename><link linkend='var-DEPLOY_DIR'><filename>DEPLOY_DIR</filename></link><filename>}/tar</filename>
-        directory in a <filename>.tar</filename> file format.
+        The <filename>package_tar</filename> class
+        provides support for creating tarballs.
+        The class ensures the packages are written out in a
+        tarball format to the
+        <filename>${</filename><link linkend='var-DEPLOY_DIR_TAR'><filename>DEPLOY_DIR_TAR</filename></link><filename>}</filename>
+        directory.
     </para>
 
     <para>
@@ -2302,17 +2629,18 @@
     <title><filename>pkgconfig.bbclass</filename></title>
 
     <para>
-        The <filename>pkg-config</filename> class provides a standard way to get
-        header and library information.
+        The <filename>pkgconfig</filename> class provides a standard way to get
+        header and library information by using <filename>pkg-config</filename>.
         This class aims to smooth integration of
         <filename>pkg-config</filename> into libraries that use it.
     </para>
 
     <para>
-        During staging, BitBake installs <filename>pkg-config</filename> data into the
-        <filename>sysroots/</filename> directory.
-        By making use of sysroot functionality within <filename>pkg-config</filename>,
-        this class no longer has to manipulate the files.
+        During staging, BitBake installs <filename>pkg-config</filename>
+        data into the <filename>sysroots/</filename> directory.
+        By making use of sysroot functionality within
+        <filename>pkg-config</filename>, the <filename>pkgconfig</filename>
+        class no longer has to manipulate the files.
     </para>
 </section>
 
@@ -2340,7 +2668,7 @@
         <itemizedlist>
             <listitem><para><emphasis><filename>populate_sdk_base</filename>:</emphasis>
                 The base class supporting SDK creation under all package
-                managers (i.e. DEB, RPM, and IPK).</para></listitem>
+                managers (i.e. DEB, RPM, and opkg).</para></listitem>
             <listitem><para><emphasis><filename>populate_sdk_deb</filename>:</emphasis>
                 Supports creation of the SDK given the Debian package manager.
                 </para></listitem>
@@ -2348,13 +2676,17 @@
                 Supports creation of the SDK given the RPM package manager.
                 </para></listitem>
             <listitem><para><emphasis><filename>populate_sdk_ipk</filename>:</emphasis>
-                Supports creation of the SDK given the IPK package manager.
+                Supports creation of the SDK given the opkg (IPK format)
+                package manager.
+                </para></listitem>
+            <listitem><para><emphasis><filename>populate_sdk_ext</filename>:</emphasis>
+                Supports extensible SDK creation under all package managers.
                 </para></listitem>
         </itemizedlist>
     </para>
 
     <para>
-        The <filename>populate_sdk_base</filename> package inherits the
+        The <filename>populate_sdk_base</filename> class inherits the
         appropriate <filename>populate_sdk_*</filename> (i.e.
         <filename>deb</filename>, <filename>rpm</filename>, and
         <filename>ipk</filename>) based on
@@ -2365,8 +2697,8 @@
         The base class ensures all source and destination directories are
         established and then populates the SDK.
         After populating the SDK, the <filename>populate_sdk_base</filename>
-        class constructs two images:
-        <link linkend='var-SDK_ARCH'><filename>SDK_ARCH</filename></link><filename>-nativesdk</filename>,
+        class constructs two sysroots:
+        <filename>${</filename><link linkend='var-SDK_ARCH'><filename>SDK_ARCH</filename></link><filename>}-nativesdk</filename>,
         which contains the cross-compiler and associated tooling, and the
         target, which contains a target root filesystem that is configured for
         the SDK usage.
@@ -2374,8 +2706,8 @@
         <link linkend='var-SDK_OUTPUT'><filename>SDK_OUTPUT</filename></link>,
         which consists of the following:
         <literallayout class='monospaced'>
-     ${SDK_OUTPUT}/&lt;sdk_arch-nativesdk pkgs&gt;
-     ${SDK_OUTPUT}/${SDKTARGETSYSROOT}/&lt;target pkgs&gt;
+     ${SDK_OUTPUT}/${SDK_ARCH}<replaceable>-nativesdk-pkgs</replaceable>
+     ${SDK_OUTPUT}/${SDKTARGETSYSROOT}/<replaceable>target-pkgs</replaceable>
         </literallayout>
     </para>
 
@@ -2481,12 +2813,38 @@
     </para>
 </section>
 
+<section id='ref-classes-ptest-gnome'>
+    <title><filename>ptest-gnome.bbclass</filename></title>
+
+    <para>
+        Enables package tests (ptests) specifically for GNOME packages,
+        which have tests intended to be executed with
+        <filename>gnome-desktop-testing</filename>.
+    </para>
+
+    <para>
+        For information on setting up and running ptests, see the
+        "<ulink url='&YOCTO_DOCS_DEV_URL;#testing-packages-with-ptest'>Testing Packages With ptest</ulink>"
+        section in the Yocto Project Development Manual.
+    </para>
+</section>
+
 <section id='ref-classes-python-dir'>
     <title><filename>python-dir.bbclass</filename></title>
 
     <para>
         The <filename>python-dir</filename> class provides the base version,
         location, and site package location for Python.
+    </para>
+</section>
+
+<section id='ref-classes-python3native'>
+    <title><filename>python3native.bbclass</filename></title>
+
+    <para>
+        The <filename>python3native</filename> class supports using the
+        native version of Python 3 built by the build system rather than
+        support of the version provided by the build host.
     </para>
 </section>
 
@@ -2571,6 +2929,16 @@
     </para>
 </section>
 
+<section id='ref-classes-recipe_sanity'>
+    <title><filename>recipe_sanity.bbclass</filename></title>
+
+    <para>
+        The <filename>recipe_sanity</filename> class checks for the presence
+        of any host system recipe prerequisites that might affect the
+        build (e.g. variables that are set or software that is present).
+    </para>
+</section>
+
 <section id='ref-classes-relocatable'>
     <title><filename>relocatable.bbclass</filename></title>
 
@@ -2645,7 +3013,7 @@
         file.
         Here is an example:
         <literallayout class='monospaced'>
-    RM_WORK_EXCLUDE += "busybox eglibc"
+    RM_WORK_EXCLUDE += "busybox glibc"
         </literallayout>
     </para>
 </section>
@@ -2669,6 +3037,11 @@
                 The <filename>rootfs_ipk</filename> class, which supports
                 creation of root filesystems for images built using
                 <filename>.ipk</filename> packages.</para></listitem>
+            <listitem><para>
+                The <filename>rootfsdebugfiles</filename> class, which installs
+                additional files found on the build host directly into the
+                root filesystem.
+                </para></listitem>
         </itemizedlist>
     </para>
 
@@ -2743,6 +3116,15 @@
         <filename>setuptools3</filename>.
         If your recipe uses these build systems, the recipe needs to
         inherit the <filename>setuptools3</filename> class.
+    </para>
+</section>
+
+<section id='ref-classes-sign_rpm'>
+    <title><filename>sign_rpm.bbclass</filename></title>
+
+    <para>
+        The <filename>sign_rpm</filename> class supports generating signed
+        RPM packages.
     </para>
 </section>
 
@@ -2864,37 +3246,37 @@
     <para>
         The class supports the following variables:
         <itemizedlist>
-            <listitem><para><emphasis><link linkend='var-INITRD'><filename>INITRD</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-INITRD'><filename>INITRD</filename></link>:
                 Indicates list of filesystem images to concatenate and use as
                 an initial RAM disk (initrd).
                 This variable is optional.</para></listitem>
-            <listitem><para><emphasis><link linkend='var-ROOTFS'><filename>ROOTFS</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-ROOTFS'><filename>ROOTFS</filename></link>:
                 Indicates a filesystem image to include as the root filesystem.
                 This variable is optional.</para></listitem>
-            <listitem><para><emphasis><link linkend='var-AUTO_SYSLINUXMENU'><filename>AUTO_SYSLINUXMENU</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-AUTO_SYSLINUXMENU'><filename>AUTO_SYSLINUXMENU</filename></link>:
                 Enables creating an automatic menu when set to "1".
                 </para></listitem>
-            <listitem><para><emphasis><link linkend='var-LABELS'><filename>LABELS</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-LABELS'><filename>LABELS</filename></link>:
                 Lists targets for automatic configuration.
                 </para></listitem>
-            <listitem><para><emphasis><link linkend='var-APPEND'><filename>APPEND</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-APPEND'><filename>APPEND</filename></link>:
                 Lists append string overrides for each label.
                 </para></listitem>
-            <listitem><para><emphasis><link linkend='var-SYSLINUX_OPTS'><filename>SYSLINUX_OPTS</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-SYSLINUX_OPTS'><filename>SYSLINUX_OPTS</filename></link>:
                 Lists additional options to add to the syslinux file.
                 Semicolon characters separate multiple options.
                 </para></listitem>
-            <listitem><para><emphasis><link linkend='var-SYSLINUX_SPLASH'><filename>SYSLINUX_SPLASH</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-SYSLINUX_SPLASH'><filename>SYSLINUX_SPLASH</filename></link>:
                 Lists a background for the VGA boot menu when you are using the
                 boot menu.</para></listitem>
-            <listitem><para><emphasis><link linkend='var-SYSLINUX_DEFAULT_CONSOLE'><filename>SYSLINUX_DEFAULT_CONSOLE</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-SYSLINUX_DEFAULT_CONSOLE'><filename>SYSLINUX_DEFAULT_CONSOLE</filename></link>:
                 Set to "console=ttyX" to change kernel boot default console.
                 </para></listitem>
-            <listitem><para><emphasis><link linkend='var-SYSLINUX_SERIAL'><filename>SYSLINUX_SERIAL</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-SYSLINUX_SERIAL'><filename>SYSLINUX_SERIAL</filename></link>:
                 Sets an alternate serial port.
                 Or, turns off serial when the variable is set with an
                 empty string.</para></listitem>
-            <listitem><para><emphasis><link linkend='var-SYSLINUX_SERIAL_TTY'><filename>SYSLINUX_SERIAL_TTY</filename></link>:</emphasis>
+            <listitem><para><link linkend='var-SYSLINUX_SERIAL_TTY'><filename>SYSLINUX_SERIAL_TTY</filename></link>:
                 Sets an alternate "console=tty..." kernel boot argument.
                 </para></listitem>
         </itemizedlist>
@@ -2979,28 +3361,61 @@
     </para>
 </section>
 
-<section id='ref-classes-testimage'>
-    <title><filename>testimage.bbclass</filename></title>
+<section id='ref-classes-testimage*'>
+    <title><filename>testimage*.bbclass</filename></title>
 
     <para>
-        The <filename>testimage</filename> class supports running automated
-        tests against images using QEMU and on actual hardware.
-        The class handles loading the tests and starting the image.
+        The <filename>testimage*</filename> classes support running
+        automated tests against images using QEMU and on actual hardware.
+        The classes handle loading the tests and starting the image.
+        To use the classes, you need to perform steps to set up the
+        environment.
     </para>
 
     <para>
-        To use the class, you need to perform steps to set up the
-        environment.
         The tests are commands that run on the target system over
         <filename>ssh</filename>.
-        they are written in Python and make use of the
+        Each test is written in Python and makes use of the
         <filename>unittest</filename> module.
+    </para>
+
+    <para>
+        The <filename>testimage.bbclass</filename> runs tests on an image
+        when called using the following:
+        <literallayout class='monospaced'>
+     $ bitbake -c testimage <replaceable>image</replaceable>
+        </literallayout>
+        The <filename>testimage-auto</filename> class runs tests on an image
+        after the image is constructed (i.e.
+        <link linkend='var-TEST_IMAGE'><filename>TEST_IMAGE</filename></link>
+        must be set to "1").
     </para>
 
     <para>
         For information on how to enable, run, and create new tests, see the
         "<ulink url='&YOCTO_DOCS_DEV_URL;#performing-automated-runtime-testing'>Performing Automated Runtime Testing</ulink>"
-        section.
+        section in the Yocto Project Development Manual.
+    </para>
+</section>
+
+<section id='ref-classes-texinfo'>
+    <title><filename>texinfo.bbclass</filename></title>
+
+    <para>
+        This class should be inherited by recipes whose upstream packages
+        invoke the <filename>texinfo</filename> utilities at build-time.
+        Native and cross recipes are made to use the dummy scripts provided
+        by <filename>texinfo-dummy-native</filename>, for improved performance.
+        Target architecture recipes use the genuine
+        Texinfo utilities.
+        By default, they use the Texinfo utilities on the host system.
+        <note>
+            If you want to use the Texinfo recipe shipped with the build
+            system, you can remove "texinfo-native" from
+            <link linkend='var-ASSUME_PROVIDED'><filename>ASSUME_PROVIDED</filename></link>
+            and makeinfo from
+            <link linkend='var-SANITY_REQUIRED_UTILITIES'><filename>SANITY_REQUIRED_UTILITIES</filename></link>.
+        </note>
     </para>
 </section>
 
@@ -3079,6 +3494,21 @@
     </para>
 </section>
 
+<section id='ref-classes-uninative'>
+    <title><filename>uninative.bbclass</filename></title>
+
+    <para>
+        Provides a means of reusing <filename>native/cross</filename> over
+        multiple distros.
+        <note>
+            Currently, the method used by the <filename>uninative</filename>
+            class is experimental.
+        </note>
+        For more information, see the commit message
+        <ulink url='http://cgit.openembedded.org/openembedded-core/commit/?id=e66c96ae9c7ba21ebd04a4807390f0031238a85a'>here</ulink>.
+    </para>
+</section>
+
 <section id='ref-classes-update-alternatives'>
     <title><filename>update-alternatives.bbclass</filename></title>
 
@@ -3147,24 +3577,29 @@
 </section>
 
 <section id='ref-classes-useradd'>
-    <title><filename>useradd.bbclass</filename></title>
+    <title><filename>useradd*.bbclass</filename></title>
 
     <para>
-        The <filename>useradd</filename> class supports the addition of users
+        The <filename>useradd*</filename> classes support the addition of users
         or groups for usage by the package on the target.
         For example, if you have packages that contain system services that
-        should be run under their own user or group, you can use this class to
-        enable creation of the user or group.
+        should be run under their own user or group, you can use these classes
+        to enable creation of the user or group.
         The <filename>meta-skeleton/recipes-skeleton/useradd/useradd-example.bb</filename>
         recipe in the <ulink url='&YOCTO_DOCS_DEV_URL;#source-directory'>Source Directory</ulink>
         provides a simple example that shows how to add three
         users and groups to two packages.
         See the <filename>useradd-example.bb</filename> recipe for more
-        information on how to use this class.
+        information on how to use these classes.
     </para>
 
     <para>
-        The <filename>useradd</filename> class supports the
+        The <filename>useradd_base</filename> class provides basic
+        functionality for user or groups settings.
+    </para>
+
+    <para>
+        The <filename>useradd*</filename> classes support the
         <link linkend='var-USERADD_PACKAGES'><filename>USERADD_PACKAGES</filename></link>,
         <link linkend='var-USERADD_PARAM'><filename>USERADD_PARAM</filename></link>,
         <link linkend='var-GROUPADD_PARAM'><filename>GROUPADD_PARAM</filename></link>,
@@ -3172,10 +3607,6 @@
         <link linkend='var-GROUPMEMS_PARAM'><filename>GROUPMEMS_PARAM</filename></link>
         variables.
     </para>
-</section>
-
-<section id='ref-classes-useradd-staticids'>
-    <title><filename>useradd-staticids.bbclass</filename></title>
 
     <para>
         The <filename>useradd-staticids</filename> class supports the addition
@@ -3219,7 +3650,8 @@
     </para>
 
     <note><title>Notes</title>
-        You do not use this class directly.
+        You do not use the <filename>useradd-staticids</filename>
+        class directly.
         You either enable or disable the class by setting the
         <filename>USERADDEXTENSION</filename> variable.
         If you enable or disable the class in a configured system,

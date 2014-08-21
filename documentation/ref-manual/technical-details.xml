@@ -85,7 +85,7 @@
         </para>
 
         <para>
-            The most common usage for BitBake is <filename>bitbake &lt;packagename&gt;</filename>, where
+            The most common usage for BitBake is <filename>bitbake <replaceable>packagename</replaceable></filename>, where
             <filename>packagename</filename> is the name of the package you want to build
             (referred to as the "target" in this manual).
             The target often equates to the first part of a recipe's filename
@@ -107,11 +107,8 @@
         <para>
             BitBake also tries to execute any dependent tasks first.
             So for example, before building <filename>matchbox-desktop</filename>, BitBake
-            would build a cross compiler and <filename>eglibc</filename> if they had not already
+            would build a cross compiler and <filename>glibc</filename> if they had not already
             been built.
-            <note>This release of the Yocto Project does not support the <filename>glibc</filename>
-                GNU version of the Unix standard C library.  By default, the OpenEmbedded build system
-                builds with <filename>eglibc</filename>.</note>
         </para>
 
         <para>
@@ -228,7 +225,7 @@
         The chain of events that occurs when <filename>gcc-cross</filename> is
         bootstrapped is as follows:
         <literallayout class='monospaced'>
-     gcc -> binutils-cross -> gcc-cross-initial -> linux-libc-headers -> eglibc-initial -> eglibc -> gcc-cross -> gcc-runtime
+     gcc -> binutils-cross -> gcc-cross-initial -> linux-libc-headers -> glibc-initial -> glibc -> gcc-cross -> gcc-runtime
         </literallayout>
         <itemizedlist>
             <listitem><para><filename>gcc</filename>:
@@ -251,9 +248,9 @@
             <listitem><para><filename>linux-libc-headers</filename>:
                 Headers needed for the cross-compiler.
                 </para></listitem>
-            <listitem><para><filename>eglibc-initial</filename>:
+            <listitem><para><filename>glibc-initial</filename>:
                 An initial version of the Embedded GLIBC needed to bootstrap
-                <filename>eglibc</filename>.
+                <filename>glibc</filename>.
                 </para></listitem>
             <listitem><para><filename>gcc-cross</filename>:
                 The final stage of the bootstrap process for the
@@ -304,7 +301,8 @@
     <para>
         Here is the bootstrap process for the relocatable toolchain:
         <literallayout class='monospaced'>
-     gcc -> binutils-crosssdk -> gcc-crosssdk-initial -> linux-libc-headers -> eglibc-initial -> nativesdk-eglibc -> gcc-crosssdk -> gcc-cross-canadian
+     gcc -> binutils-crosssdk -> gcc-crosssdk-initial -> linux-libc-headers ->
+        glibc-initial -> nativesdk-glibc -> gcc-crosssdk -> gcc-cross-canadian
         </literallayout>
         <itemizedlist>
             <listitem><para><filename>gcc</filename>:
@@ -327,11 +325,11 @@
             <listitem><para><filename>linux-libc-headers</filename>:
                 Headers needed for the cross-compiler.
                 </para></listitem>
-            <listitem><para><filename>eglibc-initial</filename>:
+            <listitem><para><filename>glibc-initial</filename>:
                 An initial version of the Embedded GLIBC needed to bootstrap
-                <filename>nativesdk-eglibc</filename>.
+                <filename>nativesdk-glibc</filename>.
                 </para></listitem>
-            <listitem><para><filename>nativesdk-eglibc</filename>:
+            <listitem><para><filename>nativesdk-glibc</filename>:
                 The Embedded GLIBC needed to bootstrap the
                 <filename>gcc-crosssdk</filename>.
                 </para></listitem>
@@ -608,13 +606,13 @@
             make some dependency and hash information available to the build.
             This information includes:
             <itemizedlist>
-                <listitem><para><filename>BB_BASEHASH_task-&lt;taskname&gt;</filename>:
+                <listitem><para><filename>BB_BASEHASH_task-</filename><replaceable>taskname</replaceable>:
                     The base hashes for each task in the recipe.
                     </para></listitem>
-                <listitem><para><filename>BB_BASEHASH_&lt;filename:taskname&gt;</filename>:
+                <listitem><para><filename>BB_BASEHASH_</filename><replaceable>filename</replaceable><filename>:</filename><replaceable>taskname</replaceable>:
                     The base hashes for each dependent task.
                     </para></listitem>
-                <listitem><para><filename>BBHASHDEPS_&lt;filename:taskname&gt;</filename>:
+                <listitem><para><filename>BBHASHDEPS_</filename><replaceable>filename</replaceable><filename>:</filename><replaceable>taskname</replaceable>:
                     The task dependencies for each task.
                     </para></listitem>
                 <listitem><para><filename>BB_TASKHASH</filename>:

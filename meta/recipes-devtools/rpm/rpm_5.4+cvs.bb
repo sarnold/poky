@@ -43,6 +43,7 @@ LICENSE = "LGPLv2.1"
 LIC_FILES_CHKSUM = "file://COPYING.LIB;md5=2d5025d4aa3495befef8f17206a5b0a1"
 
 DEPENDS = "libpcre attr acl popt ossp-uuid file byacc-native"
+DEPENDS_append_class-native = " file-replacement-native"
 
 S = "${WORKDIR}/rpm"
 
@@ -109,6 +110,7 @@ SRC_URI = "cvs://anonymous@rpm5.org/cvs;tag=rpm-5_4;module=rpm \
 	   file://rpm-db5-or-db6.patch \
 	   file://rpm-rpmpgp-fix.patch \
 	   file://rpm-disable-Wno-override-init.patch \
+	   file://rpm-realpath.patch \
 	  "
 
 # Uncomment the following line to enable platform score debugging
@@ -274,8 +276,6 @@ FILES_${PN}-libs = "${libdir}/librpm-*.so \
 		${libdir}/librpmbuild-*.so \
 		"
 
-RDEPENDS_${PN}-build += "bash"
-
 FILES_${PN}-build = "${prefix}/src/rpm \
 		${bindir}/rpmbuild \
 		${bindir}/rpmbuild.real \
@@ -349,7 +349,7 @@ FILES_${PN}-build = "${prefix}/src/rpm \
 RDEPENDS_${PN} = "base-files run-postinsts"
 RDEPENDS_${PN}_class-native = ""
 RDEPENDS_${PN}_class-nativesdk = ""
-RDEPENDS_${PN}-build = "file"
+RDEPENDS_${PN}-build = "file bash perl"
 
 RDEPENDS_python-rpm = "${PN}"
 
@@ -412,7 +412,6 @@ do_configure() {
 }
 
 do_install_append() {
-	sed -i -e 's,%__check_files,#%%__check_files,' ${D}/${libdir}/rpm/macros
 	sed -i -e 's,%__scriptlet_requires,#%%__scriptlet_requires,' ${D}/${libdir}/rpm/macros
 	sed -i -e 's,%__perl_provides,#%%__perl_provides,' ${D}/${libdir}/rpm/macros ${D}/${libdir}/rpm/macros.d/*
 	sed -i -e 's,%__perl_requires,#%%__perl_requires,' ${D}/${libdir}/rpm/macros ${D}/${libdir}/rpm/macros.d/*

@@ -7,9 +7,9 @@ LICENSE = "MIT"
 
 PR = "r2"
 
-inherit packagegroup
-
 PACKAGE_ARCH = "${MACHINE_ARCH}"
+
+inherit packagegroup
 
 # kexec-tools doesn't work on Mips
 KEXECTOOLS ?= "kexec"
@@ -30,7 +30,7 @@ X11GLTOOLS = "\
 
 X11TOOLS = "\
     fstests \
-    owl-video \
+    gst-player-bin \
     x11perf \
     xrestop \
     xwininfo \
@@ -46,8 +46,6 @@ RDEPENDS_${PN} = "\
     ${KEXECTOOLS} \
     alsa-utils-amixer \
     alsa-utils-aplay \
-    gst-meta-video \
-    gst-meta-audio \
     ltp \
     connman-tools \
     connman-tests \

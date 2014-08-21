@@ -58,13 +58,13 @@ python do_package_ipk () {
             pkgname = pkg
         localdata.setVar('PKG', pkgname)
 
-        localdata.setVar('OVERRIDES', pkg)
+        localdata.setVar('OVERRIDES', d.getVar("OVERRIDES", False) + ":" + pkg)
 
         bb.data.update_data(localdata)
         basedir = os.path.join(os.path.dirname(root))
         arch = localdata.getVar('PACKAGE_ARCH', True)
 
-        if localdata.getVar('IPK_HIERARCHICAL_FEED') == "1":
+        if localdata.getVar('IPK_HIERARCHICAL_FEED', False) == "1":
             # Spread packages across subdirectories so each isn't too crowded
             if pkgname.startswith('lib'):
                 pkg_prefix = 'lib' + pkgname[3]
@@ -94,7 +94,7 @@ python do_package_ipk () {
         cleanupcontrol(root)
         from glob import glob
         g = glob('*')
-        if not g and localdata.getVar('ALLOW_EMPTY') != "1":
+        if not g and localdata.getVar('ALLOW_EMPTY', False) != "1":
             bb.note("Not creating empty archive for %s-%s-%s" % (pkg, localdata.getVar('PKGV', True), localdata.getVar('PKGR', True)))
             bb.utils.unlockfile(lf)
             continue
@@ -134,7 +134,7 @@ python do_package_ipk () {
         try:
             for (c, fs) in fields:
                 for f in fs:
-                    if localdata.getVar(f) is None:
+                    if localdata.getVar(f, False) is None:
                         raise KeyError(f)
                 # Special behavior for description...
                 if 'DESCRIPTION' in fs:
@@ -188,7 +188,8 @@ python do_package_ipk () {
         debian_cmp_remap(rrecommends)
         rsuggests = bb.utils.explode_dep_versions2(localdata.getVar("RSUGGESTS", True) or "")
         debian_cmp_remap(rsuggests)
-        rprovides = bb.utils.explode_dep_versions2(localdata.getVar("RPROVIDES", True) or "")
+        # Deliberately drop version information here, not wanted/supported by ipk
+        rprovides = dict.fromkeys(bb.utils.explode_dep_versions2(localdata.getVar("RPROVIDES", True) or ""), [])
         debian_cmp_remap(rprovides)
         rreplaces = bb.utils.explode_dep_versions2(localdata.getVar("RREPLACES", True) or "")
         debian_cmp_remap(rreplaces)
@@ -207,7 +208,7 @@ python do_package_ipk () {
             ctrlfile.write("Replaces: %s\n" % bb.utils.join_deps(rreplaces))
         if rconflicts:
             ctrlfile.write("Conflicts: %s\n" % bb.utils.join_deps(rconflicts))
-        src_uri = localdata.getVar("SRC_URI", True) or "None"
+        src_uri = localdata.getVar("SRC_URI", True).strip() or "None"
         if src_uri:
             src_uri = re.sub("\s+", " ", src_uri)
             ctrlfile.write("Source: %s\n" % " ".join(src_uri.split()))
@@ -226,7 +227,7 @@ python do_package_ipk () {
             scriptfile.close()
             os.chmod(os.path.join(controldir, script), 0755)
 
-        conffiles_str = localdata.getVar("CONFFILES", True)
+        conffiles_str = ' '.join(get_conffiles(pkg, d))
         if conffiles_str:
             try:
                 conffiles = open(os.path.join(controldir, 'conffiles'), 'w')
@@ -249,6 +250,8 @@ python do_package_ipk () {
         bb.utils.unlockfile(lf)
 
 }
+# Otherwise allarch packages may change depending on override configuration
+do_package_ipk[vardepsexclude] = "OVERRIDES"
 
 SSTATETASKS += "do_package_write_ipk"
 do_package_write_ipk[sstate-inputdirs] = "${PKGWRITEDIRIPK}"

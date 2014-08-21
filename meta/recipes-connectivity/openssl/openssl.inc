@@ -9,6 +9,7 @@ LICENSE = "openssl"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=f9a8f968107345e0b75aa8c2ecaa7ec8"
 
 DEPENDS = "perl-native-runtime"
+DEPENDS_append_class-target = " openssl-native"
 
 SRC_URI = "http://www.openssl.org/source/openssl-${PV}.tar.gz \
           "
@@ -49,6 +50,10 @@ CONFFILES_openssl-conf = "${libdir}/ssl/openssl.cnf"
 RRECOMMENDS_libcrypto += "openssl-conf"
 RDEPENDS_${PN}-ptest += "${PN}-misc make perl perl-module-filehandle bc"
 
+# Remove this to enable SSLv3. SSLv3 is defaulted to disabled due to the POODLE
+# vulnerability
+EXTRA_OECONF = " -no-ssl3"
+
 do_configure_prepend_darwin () {
 	sed -i -e '/version-script=openssl\.ld/d' Configure
 }
@@ -60,17 +65,18 @@ do_configure () {
 	ln -sf apps/openssl.pod crypto/crypto.pod ssl/ssl.pod doc/
 
 	os=${HOST_OS}
-	if [ "x$os" = "xlinux-uclibc" ]; then
+	case $os in
+	linux-uclibc |\
+	linux-uclibceabi |\
+	linux-gnueabi |\
+	linux-uclibcspe |\
+	linux-gnuspe |\
+	linux-musl*)
 		os=linux
-	elif [ "x$os" = "xlinux-uclibceabi" ]; then
-		os=linux
-	elif [ "x$os" = "xlinux-uclibcspe" ]; then
-		os=linux
-	elif [ "x$os" = "xlinux-gnuspe" ]; then
-		os=linux
-	elif [ "x$os" = "xlinux-gnueabi" ]; then
-		os=linux
-	fi
+		;;
+		*)
+		;;
+	esac
 	target="$os-${HOST_ARCH}"
 	case $target in
 	linux-arm)
@@ -109,9 +115,12 @@ do_configure () {
 	linux-mipsel)
 		target=debian-mipsel
 		;;
-        linux-*-mips64)
+        linux-*-mips64 | linux-mips64)
                target=linux-mips
                 ;;
+	linux-microblaze*|linux-nios2*)
+		target=linux-generic32
+		;;
 	linux-powerpc)
 		target=linux-ppc
 		;;
@@ -137,6 +146,10 @@ do_configure () {
 	perl ./Configure ${EXTRA_OECONF} shared --prefix=$useprefix --openssldir=${libdir}/ssl --libdir=`basename ${libdir}` $target
 }
 
+do_compile_prepend_class-target () {
+    sed -i 's/\((OPENSSL=\)".*"/\1"openssl"/' Makefile
+}
+
 do_compile () {
 	oe_runmake
 }
@@ -146,6 +159,9 @@ do_compile_ptest () {
 }
 
 do_install () {
+	# Create ${D}/${prefix} to fix parallel issues
+	mkdir -p ${D}/${prefix}/
+
 	oe_runmake INSTALL_PREFIX="${D}" MANDIR="${mandir}" install
 
 	oe_libinstall -so libcrypto ${D}${libdir}
@@ -175,17 +191,30 @@ do_install () {
 }
 
 do_install_ptest () {
-	cp -r Makefile test ${D}${PTEST_PATH}
+	cp -r -L Makefile.org Makefile test ${D}${PTEST_PATH}
+	cp Configure config e_os.h ${D}${PTEST_PATH}
+	cp -r -L include ${D}${PTEST_PATH}
+	ln -sf ${base_libdir}/libcrypto.a ${D}${PTEST_PATH}
+	ln -sf ${libdir}/libssl.a ${D}${PTEST_PATH}
+	mkdir -p ${D}${PTEST_PATH}/crypto
+	cp crypto/constant_time_locl.h ${D}${PTEST_PATH}/crypto
 	cp -r certs ${D}${PTEST_PATH}
 	mkdir -p ${D}${PTEST_PATH}/apps
-	ln -sf /usr/lib/ssl/misc/CA.sh  ${D}${PTEST_PATH}/apps
-	ln -sf /usr/lib/ssl/openssl.cnf ${D}${PTEST_PATH}/apps
-	ln -sf /usr/bin/openssl         ${D}${PTEST_PATH}/apps
+	ln -sf ${libdir}/ssl/misc/CA.sh  ${D}${PTEST_PATH}/apps
+	ln -sf ${libdir}/ssl/openssl.cnf ${D}${PTEST_PATH}/apps
+	ln -sf ${bindir}/openssl         ${D}${PTEST_PATH}/apps
 	cp apps/server2.pem             ${D}${PTEST_PATH}/apps
 	mkdir -p ${D}${PTEST_PATH}/util
 	install util/opensslwrap.sh    ${D}${PTEST_PATH}/util
 	install util/shlib_wrap.sh     ${D}${PTEST_PATH}/util
 }
 
-BBCLASSEXTEND = "native nativesdk"
+do_install_append_class-native() {
+	create_wrapper ${D}${bindir}/openssl \
+	    OPENSSL_CONF=${libdir}/ssl/openssl.cnf \
+	    SSL_CERT_DIR=${libdir}/ssl/certs \
+	    SSL_CERT_FILE=${libdir}/ssl/cert.pem \
+	    OPENSSL_ENGINES=${libdir}/ssl/engines
+}
 
+BBCLASSEXTEND = "native nativesdk"

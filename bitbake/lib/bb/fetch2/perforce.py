@@ -48,7 +48,7 @@ class Perforce(FetchMethod):
             (user, pswd, host, port) = path.split('@')[0].split(":")
             path = path.split('@')[1]
         else:
-            (host, port) = d.getVar('P4PORT').split(':')
+            (host, port) = d.getVar('P4PORT', False).split(':')
             user = ""
             pswd = ""
 
@@ -103,22 +103,15 @@ class Perforce(FetchMethod):
     def urldata_init(self, ud, d):
         (host, path, user, pswd, parm) = Perforce.doparse(ud.url, d)
 
-        # If a label is specified, we use that as our filename
-
+        base_path = path.replace('/...', '')
+        base_path = self._strip_leading_slashes(base_path)
+        
         if "label" in parm:
-            ud.localfile = "%s.tar.gz" % (parm["label"])
-            return
+            version = parm["label"]
+        else:
+            version = Perforce.getcset(d, path, host, user, pswd, parm)
 
-        base = path
-        which = path.find('/...')
-        if which != -1:
-            base = path[:which-1]
-
-        base = self._strip_leading_slashes(base)
-
-        cset = Perforce.getcset(d, path, host, user, pswd, parm)
-
-        ud.localfile = data.expand('%s+%s+%s.tar.gz' % (host, base.replace('/', '.'), cset), d)
+        ud.localfile = data.expand('%s+%s+%s.tar.gz' % (host, base_path.replace('/', '.'), version), d)
 
     def download(self, ud, d):
         """
@@ -130,7 +123,7 @@ class Perforce(FetchMethod):
         if depot.find('/...') != -1:
             path = depot[:depot.find('/...')]
         else:
-            path = depot
+            path = depot[:depot.rfind('/')]
 
         module = parm.get('module', os.path.basename(path))
 

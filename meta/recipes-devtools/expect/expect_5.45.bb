@@ -16,7 +16,9 @@ LIC_FILES_CHKSUM = "file://license.terms;md5=fbf2de7e9102505b1439db06fc36ce5c"
 DEPENDS += "tcl"
 RDEPENDS_${PN} = "tcl"
 
-inherit autotools-brokensep
+inherit autotools
+
+PR = "r1"
 
 SRC_URI = "${SOURCEFORGE_MIRROR}/expect/Expect/${PV}/${BPN}${PV}.tar.gz \
            file://0001-configure.in.patch \
@@ -35,10 +37,10 @@ do_install_append() {
         install -m 0755 ${S}/fixline1           ${D}${libdir}/expect${PV}/
         install -m 0755 ${S}/example/*          ${D}${libdir}/expect${PV}/
         rm ${D}${libdir}/expect${PV}/libexpect*.so
+        sed -e 's|$dir|${libdir}|' -i ${D}${libdir}/expect${PV}/pkgIndex.tcl
 }
 
-EXTRA_OECONF += "--includedir=${STAGING_INCDIR} \
-                 --with-tcl=${STAGING_LIBDIR} \
+EXTRA_OECONF += "--with-tcl=${STAGING_LIBDIR} \
                  --with-tclinclude=${STAGING_INCDIR}/tcl8.6 \
                  --enable-shared \
                  --enable-threads \
@@ -50,10 +52,10 @@ FILES_${PN}-dbg += "${libdir}/${BPN}${PV}/.debug \
                     ${libdir}/.debug \
                    "
 FILES_${PN}-dev = "${libdir_native}/expect${PV}/libexpect*.so \
-                   ${STAGING_INCDIR}/expect.h \
-                   ${STAGING_INCDIR}/expect_tcl.h \
-                   ${STAGING_INCDIR}/expect_comm.h \
-                   ${STAGING_INCDIR}/tcldbg.h \
+                   ${includedir}/expect.h \
+                   ${includedir}/expect_tcl.h \
+                   ${includedir}/expect_comm.h \
+                   ${includedir}/tcldbg.h \
                    ${includedir}/*.h \
                   "
 

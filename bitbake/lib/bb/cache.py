@@ -43,7 +43,7 @@ except ImportError:
     logger.info("Importing cPickle failed. "
                 "Falling back to a very slow implementation.")
 
-__cache_version__ = "147"
+__cache_version__ = "148"
 
 def getCacheFile(path, filename, data_hash):
     return os.path.join(path, filename + "." + data_hash)
@@ -85,8 +85,8 @@ class RecipeInfoCommon(object):
             return out_dict
 
     @classmethod
-    def getvar(cls, var, metadata):
-        return metadata.getVar(var, True) or ''
+    def getvar(cls, var, metadata, expand = True):
+        return metadata.getVar(var, expand) or ''
 
 
 class CoreRecipeInfo(RecipeInfoCommon):
@@ -142,7 +142,7 @@ class CoreRecipeInfo(RecipeInfoCommon):
         self.rprovides_pkg    = self.pkgvar('RPROVIDES', self.packages, metadata)
         self.rdepends_pkg     = self.pkgvar('RDEPENDS', self.packages, metadata)
         self.rrecommends_pkg  = self.pkgvar('RRECOMMENDS', self.packages, metadata)
-        self.inherits         = self.getvar('__inherit_cache', metadata)
+        self.inherits         = self.getvar('__inherit_cache', metadata, expand=False)
         self.fakerootenv      = self.getvar('FAKEROOTENV', metadata)
         self.fakerootdirs     = self.getvar('FAKEROOTDIRS', metadata)
         self.fakerootnoenv    = self.getvar('FAKEROOTNOENV', metadata)
@@ -225,7 +225,7 @@ class CoreRecipeInfo(RecipeInfoCommon):
         for package in self.packages_dynamic:
             cachedata.packages_dynamic[package].append(fn)
 
-        # Build hash of runtime depends and rececommends
+        # Build hash of runtime depends and recommends
         for package in self.packages + [self.pn]:
             cachedata.rundeps[fn][package] = list(self.rdepends) + self.rdepends_pkg[package]
             cachedata.runrecs[fn][package] = list(self.rrecommends) + self.rrecommends_pkg[package]
@@ -261,7 +261,7 @@ class Cache(object):
 
     def __init__(self, data, data_hash, caches_array):
         # Pass caches_array information into Cache Constructor
-        # It will be used in later for deciding whether we 
+        # It will be used later for deciding whether we 
         # need extra cache file dump/load support 
         self.caches_array = caches_array
         self.cachedir = data.getVar("CACHE", True)
@@ -528,9 +528,25 @@ class Cache(object):
 
         if hasattr(info_array[0], 'file_checksums'):
             for _, fl in info_array[0].file_checksums.items():
-                for f in fl.split():
-                    if not ('*' in f or os.path.exists(f)):
-                        logger.debug(2, "Cache: %s's file checksum list file %s was removed",
+                fl = fl.strip()
+                while fl:
+                    # A .split() would be simpler but means spaces or colons in filenames would break
+                    a = fl.find(":True")
+                    b = fl.find(":False")
+                    if ((a < 0) and b) or ((b > 0) and (b < a)):
+                       f = fl[:b+6]
+                       fl = fl[b+7:]
+                    elif ((b < 0) and a) or ((a > 0) and (a < b)):
+                       f = fl[:a+5]
+                       fl = fl[a+6:]
+                    else:
+                       break
+                    fl = fl.strip()
+                    if "*" in f:
+                        continue
+                    f, exist = f.split(":")
+                    if (exist == "True" and not os.path.exists(f)) or (exist == "False" and os.path.exists(f)):
+                        logger.debug(2, "Cache: %s's file checksum list file %s changed",
                                         fn, f)
                         self.remove(fn)
                         return False
@@ -620,9 +636,12 @@ class Cache(object):
     def mtime(cachefile):
         return bb.parse.cached_mtime_noerror(cachefile)
 
-    def add_info(self, filename, info_array, cacheData, parsed=None):
+    def add_info(self, filename, info_array, cacheData, parsed=None, watcher=None):
         if isinstance(info_array[0], CoreRecipeInfo) and (not info_array[0].skipped):
             cacheData.add_from_recipeinfo(filename, info_array)
+
+            if watcher:
+                watcher(info_array[0].file_depends)
 
         if not self.has_cache:
             return
@@ -653,25 +672,25 @@ class Cache(object):
         """
         chdir_back = False
 
-        from bb import data, parse
+        from bb import parse
 
         # expand tmpdir to include this topdir
-        data.setVar('TMPDIR', data.getVar('TMPDIR', config, 1) or "", config)
+        config.setVar('TMPDIR', config.getVar('TMPDIR', True) or "")
         bbfile_loc = os.path.abspath(os.path.dirname(bbfile))
         oldpath = os.path.abspath(os.getcwd())
         parse.cached_mtime_noerror(bbfile_loc)
-        bb_data = data.init_db(config)
+        bb_data = config.createCopy()
         # The ConfHandler first looks if there is a TOPDIR and if not
         # then it would call getcwd().
         # Previously, we chdir()ed to bbfile_loc, called the handler
         # and finally chdir()ed back, a couple of thousand times. We now
         # just fill in TOPDIR to point to bbfile_loc if there is no TOPDIR yet.
-        if not data.getVar('TOPDIR', bb_data):
+        if not bb_data.getVar('TOPDIR', False):
             chdir_back = True
-            data.setVar('TOPDIR', bbfile_loc, bb_data)
+            bb_data.setVar('TOPDIR', bbfile_loc)
         try:
             if appends:
-                data.setVar('__BBAPPEND', " ".join(appends), bb_data)
+                bb_data.setVar('__BBAPPEND', " ".join(appends))
             bb_data = parse.handle(bbfile, bb_data)
             if chdir_back:
                 os.chdir(oldpath)

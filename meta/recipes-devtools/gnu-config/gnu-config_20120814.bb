@@ -17,9 +17,9 @@ SRC_URI = "http://downloads.yoctoproject.org/releases/gnu-config/gnu-config-${PV
 SRC_URI[md5sum] = "bcfca5a2bb39edad4aae5a65efc84094"
 SRC_URI[sha256sum] = "44f99a8e76f3e8e4fec0bb5ad4762f8e44366168554ce66cb85afbe2ed3efd8b"
 
-do_compile() {
-	:
-}
+CLEANBROKEN = "1"
+
+do_compile[noexec] = "1"
 
 do_install () {
 	install -d ${D}${datadir}/gnu-config \

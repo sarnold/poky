@@ -6,6 +6,8 @@ SUMMARY = "Software development tools"
 LICENSE = "MIT"
 PR = "r9"
 
+PACKAGE_ARCH = "${MACHINE_ARCH}"
+
 inherit packagegroup
 
 #PACKAGEFUNCS =+ 'generate_sdk_pkgs'
@@ -21,14 +23,23 @@ RDEPENDS_packagegroup-core-sdk = "\
     findutils \
     quilt \
     less \
-    distcc \
     ldd \
     file \
     tcl"
 
+SANITIZERS = "libasan-dev libubsan-dev"
+SANITIZERS_aarch64 = ""
+SANITIZERS_mips = ""
+SANITIZERS_mips64 = ""
+SANITIZERS_mips64n32 = ""
+SANITIZERS_powerpc64 = ""
+SANITIZERS_sparc = ""
+SANITIZERS_libc-musl = ""
+
 RRECOMMENDS_packagegroup-core-sdk = "\
     libgomp \
-    libgomp-dev"
+    libgomp-dev \
+    ${SANITIZERS}"
 
 #python generate_sdk_pkgs () {
 #    poky_pkgs = read_pkgdata('packagegroup-core', d)['PACKAGES']
@@ -61,9 +72,9 @@ RRECOMMENDS_packagegroup-core-sdk = "\
 #                    if packaged('%s-dev' % name, d):
 #                        rreclist.append('%s-dev' % name)
 #
-#            oldrrec = d.getVar('RRECOMMENDS_%s' % newpkg) or ''
+#            oldrrec = d.getVar('RRECOMMENDS_%s' % newpkg, False) or ''
 #            d.setVar('RRECOMMENDS_%s' % newpkg, oldrrec + ' ' + ' '.join(rreclist))
-#            # bb.note('RRECOMMENDS_%s = "%s"' % (newpkg, d.getVar('RRECOMMENDS_%s' % newpkg)))
+#            # bb.note('RRECOMMENDS_%s = "%s"' % (newpkg, d.getVar('RRECOMMENDS_%s' % newpkg, False)))
 #
 #    # bb.note('pkgs is %s' % pkgs)
 #    d.setVar('PACKAGES', ' '.join(pkgs))

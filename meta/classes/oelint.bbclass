@@ -1,4 +1,4 @@
-addtask lint before do_fetch
+addtask lint before do_build
 do_lint[nostamp] = "1"
 python do_lint() {
     pkgname = d.getVar("PN", True)
@@ -6,7 +6,7 @@ python do_lint() {
     ##############################
     # Test that DESCRIPTION exists
     #
-    description = d.getVar("DESCRIPTION")
+    description = d.getVar("DESCRIPTION", False)
     if description[1:10] == '{SUMMARY}':
         bb.warn("%s: DESCRIPTION is not set" % pkgname)
 
@@ -14,7 +14,7 @@ python do_lint() {
     ##############################
     # Test that HOMEPAGE exists
     #
-    homepage = d.getVar("HOMEPAGE")
+    homepage = d.getVar("HOMEPAGE", False)
     if homepage == '':
         bb.warn("%s: HOMEPAGE is not set" % pkgname)
     elif not homepage.startswith("http://") and not homepage.startswith("https://"):
@@ -24,7 +24,7 @@ python do_lint() {
     ##############################
     # Test for valid SECTION
     #
-    section = d.getVar("SECTION")
+    section = d.getVar("SECTION", False)
     if section == '':
         bb.warn("%s: SECTION is not set" % pkgname)
     elif not section.islower():
@@ -34,7 +34,7 @@ python do_lint() {
     ##############################
     # Check that all patches have Signed-off-by and Upstream-Status
     #
-    srcuri = d.getVar("SRC_URI").split()
+    srcuri = d.getVar("SRC_URI", False).split()
     fpaths = (d.getVar('FILESPATH', True) or '').split(':')
 
     def findPatch(patchname):
@@ -54,6 +54,12 @@ python do_lint() {
         f.close()
         return ret
 
+    def checkPN(pkgname, varname, str):
+        if str.find("{PN}") != -1:
+            bb.warn("%s: should use BPN instead of PN in %s" % (pkgname, varname))
+        if str.find("{P}") != -1:
+            bb.warn("%s: should use BP instead of P in %s" % (pkgname, varname))
+
     length = len("file://")
     for item in srcuri:
         if item.startswith("file://"):
@@ -72,14 +78,7 @@ python do_lint() {
     #
     for s in srcuri:
         if not s.startswith("file://"):
-            if not s.find("{PN}") == -1:
-                bb.warn("%s: should use BPN instead of PN in SRC_URI" % pkgname)
-            if not s.find("{P}") == -1:
-                bb.warn("%s: should use BP instead of P in SRC_URI" % pkgname)
+            checkPN(pkgname, 'SRC_URI', s)
 
-    srcpath = d.getVar("S")
-    if not srcpath.find("{PN}") == -1:
-        bb.warn("%s: should use BPN instead of PN in S" % pkgname)
-    if not srcpath.find("{P}") == -1:
-        bb.warn("%s: should use BP instead of P in S" % pkgname)
+    checkPN(pkgname, 'S', d.getVar('S', False))
 }

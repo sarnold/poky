@@ -21,7 +21,7 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-__version__ = "1.23.1"
+__version__ = "1.28.0"
 
 import sys
 if sys.version_info < (2, 7, 3):
@@ -94,16 +94,16 @@ def note(*args):
 def warn(*args):
     logger.warn(''.join(args))
 
-def error(*args):
-    logger.error(''.join(args))
+def error(*args, **kwargs):
+    logger.error(''.join(args), extra=kwargs)
 
-def fatal(*args):
-    logger.critical(''.join(args))
+def fatal(*args, **kwargs):
+    logger.critical(''.join(args), extra=kwargs)
     raise BBHandledException()
 
 def deprecated(func, name=None, advice=""):
     """This is a decorator which can be used to mark functions
-    as deprecated. It will result in a warning being emmitted
+    as deprecated. It will result in a warning being emitted
     when the function is used."""
     import warnings
 

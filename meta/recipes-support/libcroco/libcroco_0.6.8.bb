@@ -11,13 +11,11 @@ SECTION = "x11/utils"
 DEPENDS = "glib-2.0 libxml2 zlib"
 BBCLASSEXTEND = "native"
 EXTRA_OECONF += "--enable-Bsymbolic=auto"
-PR = "r1"
+PR = "r2"
 
 BINCONFIG = "${bindir}/croco-0.6-config"
 
-inherit autotools-brokensep pkgconfig gnomebase gtk-doc binconfig-disabled
-
-GNOME_COMPRESS_TYPE = "xz"
+inherit autotools pkgconfig gnomebase gtk-doc binconfig-disabled
 
 SRC_URI[archive.md5sum] = "767e73c4174f75b99695d4530fd9bb80"
 SRC_URI[archive.sha256sum] = "ea6e1b858c55219cefd7109756bff5bc1a774ba7a55f7d3ccd734d6b871b8570"

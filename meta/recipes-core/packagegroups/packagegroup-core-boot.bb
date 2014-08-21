@@ -7,9 +7,9 @@ DESCRIPTION = "The minimal set of packages required to boot the system"
 LICENSE = "MIT"
 PR = "r17"
 
-inherit packagegroup
-
 PACKAGE_ARCH = "${MACHINE_ARCH}"
+
+inherit packagegroup
 
 #
 # Set by the machine configuration with packages essential for device bootup
@@ -27,6 +27,7 @@ VIRTUAL-RUNTIME_keymaps ?= "keymaps"
 SYSVINIT_SCRIPTS = "${@bb.utils.contains('MACHINE_FEATURES', 'rtc', 'busybox-hwclock', '', d)} \
                     modutils-initscripts \
                     init-ifupdown \
+                    ${VIRTUAL-RUNTIME_initscripts} \
                    "
 
 RDEPENDS_${PN} = "\
@@ -38,7 +39,6 @@ RDEPENDS_${PN} = "\
     netbase \
     ${VIRTUAL-RUNTIME_login_manager} \
     ${VIRTUAL-RUNTIME_init_manager} \
-    ${VIRTUAL-RUNTIME_initscripts} \
     ${VIRTUAL-RUNTIME_dev_manager} \
     ${VIRTUAL-RUNTIME_update-alternatives} \
     ${MACHINE_ESSENTIAL_EXTRA_RDEPENDS}"

@@ -5,7 +5,9 @@ SRC_URI = "file://init-install.sh"
 
 PR = "r9"
 
-RDEPENDS_${PN} = "grub parted e2fsprogs-mke2fs"
+S = "${WORKDIR}"
+
+RDEPENDS_${PN} = "grub parted e2fsprogs-mke2fs util-linux-blkid"
 
 do_install() {
         install -m 0755 ${WORKDIR}/init-install.sh ${D}/install.sh

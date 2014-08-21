@@ -92,6 +92,9 @@ class pythonCacheLine(object):
         for c in sorted(self.contains.keys()):
             l = l + (c, hash(self.contains[c]))
         return hash(l)
+    def __repr__(self):
+        return " ".join([str(self.refs), str(self.execs), str(self.contains)]) 
+
 
 class shellCacheLine(object):
     def __init__(self, execs):
@@ -105,6 +108,8 @@ class shellCacheLine(object):
         self.__init__(execs)
     def __hash__(self):
         return hash(self.execs)
+    def __repr__(self):
+        return str(self.execs)
 
 class CodeParserCache(MultiProcessCache):
     cache_file_name = "bb_codeparser.dat"
@@ -139,6 +144,10 @@ class CodeParserCache(MultiProcessCache):
         return cacheline
 
     def init_cache(self, d):
+        # Check if we already have the caches
+        if self.pythoncache:
+            return
+
         MultiProcessCache.init_cache(self, d)
 
         # cachedata gets re-assigned in the parent
@@ -178,7 +187,7 @@ class BufferedLogger(Logger):
 
 class PythonParser():
     getvars = (".getVar", ".appendVar", ".prependVar")
-    containsfuncs = ("bb.utils.contains", "base_contains", "oe.utils.contains", "bb.utils.contains_any")
+    containsfuncs = ("bb.utils.contains", "base_contains", "bb.utils.contains_any")
     execfuncs = ("bb.build.exec_func", "bb.build.exec_task")
 
     def warn(self, func, arg):
@@ -240,6 +249,9 @@ class PythonParser():
         self.unhandled_message = "while parsing %s, %s" % (name, self.unhandled_message)
 
     def parse_python(self, node):
+        if not node or not node.strip():
+            return
+
         h = hash(str(node))
 
         if h in codeparsercache.pythoncache:

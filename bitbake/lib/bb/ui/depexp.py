@@ -17,6 +17,7 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+import sys
 import gobject
 import gtk
 import Queue
@@ -198,7 +199,7 @@ def main(server, eventHandler, params):
             print("Nothing to do.  Use 'bitbake world' to build everything, or run 'bitbake --help' for usage information.")
             return 1
         if 'msg' in cmdline and cmdline['msg']:
-            logger.error(cmdline['msg'])
+            print(cmdline['msg'])
             return 1
         cmdline = cmdline['action']
         if not cmdline or cmdline[0] != "generateDotGraph":
@@ -213,6 +214,12 @@ def main(server, eventHandler, params):
             return 1
     except xmlrpclib.Fault as x:
         print("XMLRPC Fault getting commandline:\n %s" % x)
+        return
+
+    try:
+        gtk.init_check()
+    except RuntimeError:
+        sys.stderr.write("Please set DISPLAY variable before running this command \n")
         return
 
     shutdown = 0
@@ -236,7 +243,7 @@ def main(server, eventHandler, params):
         try:
             event = eventHandler.waitEvent(0.25)
             if gtkthread.quit.isSet():
-                _, error = server.runCommand(["stateStop"])
+                _, error = server.runCommand(["stateForceShutdown"])
                 if error:
                     print('Unable to cleanly stop: %s' % error)
                 break

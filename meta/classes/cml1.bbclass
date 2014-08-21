@@ -9,12 +9,14 @@ addtask configure after do_unpack do_patch before do_compile
 
 inherit terminal
 
-OE_TERMINAL_EXPORTS += "HOST_EXTRACFLAGS HOSTLDFLAGS HOST_LOADLIBES TERMINFO"
+OE_TERMINAL_EXPORTS += "HOST_EXTRACFLAGS HOSTLDFLAGS TERMINFO CROSS_CURSES_LIB CROSS_CURSES_INC"
 HOST_EXTRACFLAGS = "${BUILD_CFLAGS} ${BUILD_LDFLAGS}"
 HOSTLDFLAGS = "${BUILD_LDFLAGS}"
-HOST_LOADLIBES = "-lncurses"
+CROSS_CURSES_LIB = "-lncurses -ltinfo"
+CROSS_CURSES_INC = '-DCURSES_LOC="<curses.h>"'
 TERMINFO = "${STAGING_DATADIR_NATIVE}/terminfo"
 
+KCONFIG_CONFIG_COMMAND ??= "menuconfig"
 python do_menuconfig() {
     import shutil
 
@@ -24,7 +26,7 @@ python do_menuconfig() {
     except OSError:
         mtime = 0
 
-    oe_terminal("${SHELL} -c \"make menuconfig; if [ \$? -ne 0 ]; then echo 'Command failed.'; printf 'Press any key to continue... '; read r; fi\"", '${PN} Configuration', d)
+    oe_terminal("${SHELL} -c \"make ${KCONFIG_CONFIG_COMMAND}; if [ \$? -ne 0 ]; then echo 'Command failed.'; printf 'Press any key to continue... '; read r; fi\"", '${PN} Configuration', d)
 
     # FIXME this check can be removed when the minimum bitbake version has been bumped
     if hasattr(bb.build, 'write_taint'):
@@ -58,7 +60,7 @@ python do_diffconfig() {
         bb.fatal("No config files found. Did you do menuconfig ?\n%s" % e)
 
     if isdiff:
-        statement = 'diff --unchanged-line-format= --old-line-format= --new-line-format="%L"' + configorig + ' ' + config + '>' + fragment
+        statement = 'diff --unchanged-line-format= --old-line-format= --new-line-format="%L" ' + configorig + ' ' + config + '>' + fragment
         subprocess.call(statement, shell=True)
 
         shutil.copy(configorig, config)

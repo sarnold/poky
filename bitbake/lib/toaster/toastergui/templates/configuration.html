@@ -1,6 +1,7 @@
 {% extends "basebuildpage.html" %}
 {% load projecttags %}
 
+{% block title %} Configuration summary - {{build.target_set.all|dictsort:"target"|join:", "}} {{build.machine}} - {{build.project.name}} - Toaster {% endblock %}
 {% block localbreadcrumb %}
 <li>Configuration</li>
 {% endblock %}
@@ -50,7 +51,6 @@
           <th>Layer</th>
           <th>Layer branch</th>
           <th>Layer commit</th>
-          <th>Layer directory</th>
         </tr>
       </thead>
       <tbody>{% for lv in build.layer_version_build.all|dictsort:"layer.name" %}
@@ -61,7 +61,6 @@
                 <li>{{lv.commit}}</li> </ul>">
                     {{lv.commit|truncatechars:13}}
                 </a></td>
-            <td>{{lv.layer.local_path}}</td>
         </tr>{% endfor %}
       </tbody>
     </table>

@@ -7,24 +7,33 @@ SRC_URI = "http://www.cups.org/software/${PV}/${BP}-source.tar.bz2 \
            file://use_echo_only_in_init.patch \
            file://0001-don-t-try-to-run-generated-binaries.patch \
            file://cups_serverbin.patch \
-           file://cups-no-gcrypt.patch \
+           file://cups.socket \
+           file://cups.path \
+           file://cups.service \
 	  "
 
 LEAD_SONAME = "libcupsdriver.so"
 
-inherit autotools-brokensep binconfig
+CLEANBROKEN = "1"
+
+inherit autotools-brokensep binconfig useradd systemd
+
+USERADD_PACKAGES = "${PN}"
+GROUPADD_PARAM_${PN} = "--system lpadmin"
+
+SYSTEMD_SERVICE_${PN} = "cups.socket cups.path cups.service"
 
 PACKAGECONFIG ??= "${@bb.utils.contains('DISTRO_FEATURES', 'zeroconf', 'avahi', '', d)} \
                    ${@bb.utils.contains('DISTRO_FEATURES', 'pam', 'pam', '', d)}"
 PACKAGECONFIG[avahi] = "--enable-avahi,--disable-avahi,avahi"
 PACKAGECONFIG[acl] = "--enable-acl,--disable-acl,acl"
 PACKAGECONFIG[pam] = "--enable-pam, --disable-pam, libpam"
+PACKAGECONFIG[xinetd] = "--with-xinetd=${sysconfdir}/xinetd.d,--without-xinetd,xinetd"
 
 EXTRA_OECONF = " \
                --enable-gnutls \
                --enable-dbus \
                --enable-browsing \
-               --disable-openssl \
                --disable-gssapi \
                --enable-debug \
                --disable-relro \
@@ -35,18 +44,9 @@ EXTRA_OECONF = " \
                --without-java \
                "
 
-
-do_configure() {
-	gnu-configize
-	libtoolize --force
-	autoconf --force
-	DSOFLAGS="${LDFLAGS}" SERVERBIN="${libdir}/cups" oe_runconf
-}
+EXTRA_AUTORECONF += "--exclude=autoheader"
 
 do_compile () {
-	sed -i s:STRIP:NOSTRIP: Makedefs
-	sed -i s:serial:: backend/Makefile
-
 	echo "all:"    >  man/Makefile
 	echo "libs:" >> man/Makefile
 	echo "install:" >> man/Makefile
@@ -55,19 +55,33 @@ do_compile () {
 	echo "install-headers:" >> man/Makefile
 	echo "install-libs:" >> man/Makefile
 
-	oe_runmake "SSLLIBS=-lgnutls -L${STAGING_LIBDIR}" \
-		   "LIBPNG=-lpng -lm -L${STAGING_LIBDIR}" \
-		   "LIBJPEG=-ljpeg -L${STAGING_LIBDIR}" \
-		   "LIBZ=-lz -L${STAGING_LIBDIR}" \
-		   "-I."
+	oe_runmake
 }
 
-fakeroot do_install () {
+do_install () {
 	oe_runmake "DSTROOT=${D}" install
 
 	# Remove /var/run from package as cupsd will populate it on startup
 	rm -fr ${D}/${localstatedir}/run
 	rmdir ${D}/${libdir}/${BPN}/driver
+
+	# Fix the pam configuration file permissions
+	if ${@bb.utils.contains('DISTRO_FEATURES', 'pam', 'true', 'false', d)}; then
+	    chmod 0644 ${D}${sysconfdir}/pam.d/cups
+	fi
+
+	# Remove sysinit script and symlinks if sysvinit is not in DISTRO_FEATURES
+	if ${@bb.utils.contains('DISTRO_FEATURES','sysvinit','false','true',d)}; then
+	    rm -rf ${D}${sysconfdir}/init.d/
+	    rm -rf ${D}${sysconfdir}/rc*
+	fi
+
+	# Install systemd unit files
+	install -d ${D}${systemd_unitdir}/system
+	install -m 0644 ${WORKDIR}/cups.socket ${D}${systemd_unitdir}/system
+	install -m 0644 ${WORKDIR}/cups.path ${D}${systemd_unitdir}/system
+	install -m 0644 ${WORKDIR}/cups.service ${D}${systemd_unitdir}/system
+	sed -i -e 's,@SBINDIR@,${sbindir},g' ${D}${systemd_unitdir}/system/cups.service
 }
 
 python do_package_append() {
@@ -79,6 +93,7 @@ python do_package_append() {
 
 PACKAGES =+ "${PN}-lib ${PN}-libimage"
 
+RDEPENDS_${PN} += "${@bb.utils.contains('DISTRO_FEATURES', 'sysvinit', 'procps', '', d)}"
 FILES_${PN} += "${libdir}/cups/backend \
 		${libdir}/cups/cgi-bin \
 		${libdir}/cups/filter \

@@ -5,7 +5,7 @@ SECTION = "console/network"
 # some files are from other projects and have others license terms:
 #   public domain, OpenSSH 3.5p1, OpenSSH3.6.1p2, PuTTY
 LICENSE = "MIT & BSD-3-Clause & BSD-2-Clause & PD"
-LIC_FILES_CHKSUM = "file://LICENSE;md5=4d290ce0ac102c828dfc9ce836784688"
+LIC_FILES_CHKSUM = "file://LICENSE;md5=a5ec40cafba26fc4396d0b550f824e01"
 
 DEPENDS = "zlib"
 RPROVIDES_${PN} = "ssh sshd" 
@@ -26,6 +26,13 @@ SRC_URI = "http://matt.ucc.asn.au/dropbear/releases/dropbear-${PV}.tar.bz2 \
 PAM_SRC_URI = "file://0005-dropbear-enable-pam.patch \
                file://0006-dropbear-configuration-file.patch \
                file://dropbear"
+
+PAM_PLUGINS = "libpam-runtime \
+	pam-plugin-deny \
+	pam-plugin-permit \
+	pam-plugin-unix \
+	"
+RDEPENDS_${PN} += "${@bb.utils.contains('DISTRO_FEATURES', 'pam', '${PAM_PLUGINS}', '', d)}"
 
 inherit autotools update-rc.d systemd
 

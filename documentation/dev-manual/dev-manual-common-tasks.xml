@@ -273,29 +273,17 @@
                     the included file, use the path relative to the original
                     layer directory to refer to the file.
                     For example, use
-                    <filename>require recipes-core/somepackage/somefile.inc</filename>
-                    instead of <filename>require somefile.inc</filename>.
+                    <filename>require recipes-core/</filename><replaceable>package</replaceable><filename>/</filename><replaceable>file</replaceable><filename>.inc</filename>
+                    instead of <filename>require </filename><replaceable>file</replaceable><filename>.inc</filename>.
                     If you're finding you have to overlay the include file,
                     it could indicate a deficiency in the include file in
                     the layer to which it originally belongs.
-                    If this is the case, you need to address that deficiency
-                    instead of overlaying the include file.
-                </para>
-
-                <para>
-                    For example, consider how support plug-ins for the Qt 4
-                    database are configured.
-                    The Source Directory does not have MySQL or PostgreSQL.
-                    However, OpenEmbedded's layer <filename>meta-oe</filename>
-                    does.
-                    Consequently, <filename>meta-oe</filename> uses
-                    append files to modify the
-                    <filename>QT_SQL_DRIVER_FLAGS</filename> variable to
-                    enable the appropriate plug-ins.
-                    This variable was added to the <filename>qt4.inc</filename>
-                    include file in the Source Directory specifically to allow
-                    the <filename>meta-oe</filename> layer to be able to control
-                    which plug-ins are built.
+                    If this is the case, you should try to address that
+                    deficiency instead of overlaying the include file.
+                    For example, you could address this by getting the
+                    maintainer of the include file to add a variable or
+                    variables to make it easy to override the parts needing
+                    to be overridden.
                 </para>
             </section>
 
@@ -421,7 +409,7 @@
                     <itemizedlist>
                         <listitem><para>Store custom layers in a Git repository
                             that uses the
-                            <filename>meta-&lt;layer_name&gt;</filename> format.
+                            <filename>meta-<replaceable>layer_name</replaceable></filename> format.
                             </para></listitem>
                         <listitem><para>Clone the repository alongside other
                             <filename>meta</filename> directories in the
@@ -459,11 +447,6 @@
        $HOME/poky/meta-yocto \
        $HOME/poky/meta-yocto-bsp \
        $HOME/poky/meta-mylayer \
-       "
-
-     BBLAYERS_NON_REMOVABLE ?= " \
-       $HOME/poky/meta \
-       $HOME/poky/meta-yocto \
        "
                 </literallayout>
             </para>
@@ -567,8 +550,8 @@
             <para>
                 Following is the append file, which is named
                 <filename>formfactor_0.0.bbappend</filename> and is from the
-                Crown Bay BSP Layer named
-                <filename>meta-intel/meta-crownbay</filename>.
+                Emenlow BSP Layer named
+                <filename>meta-intel/meta-emenlow</filename>.
                 The file is in <filename>recipes-bsp/formfactor</filename>:
                 <literallayout class='monospaced'>
      FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"
@@ -594,7 +577,7 @@
                 which resolves to a directory named
                 <filename>formfactor</filename> in the same directory
                 in which the append file resides (i.e.
-                <filename>meta-intel/meta-crownbay/recipes-bsp/formfactor/formfactor</filename>.
+                <filename>meta-intel/meta-emenlow/recipes-bsp/formfactor/formfactor</filename>.
                 This implies that you must have the supporting directory
                 structure set up that will contain any files or patches you
                 will be including from the layer.
@@ -611,16 +594,18 @@
                         BitBake automatically defines the
                         <filename>THISDIR</filename> variable.
                         You should never set this variable yourself.
-                        Using "_prepend" ensures your path will
-                        be searched prior to other paths in the final list.
+                        Using "_prepend" as part of the
+                        <filename>FILESEXTRAPATHS</filename> ensures your path
+                        will be searched prior to other paths in the final
+                        list.
                     </para>
 
                     <para>
                         Also, not all append files add extra files.
                         Many append files simply exist to add build options
                         (e.g. <filename>systemd</filename>).
-                        For these cases, it is not necessary to use the
-                        "_prepend" part of the statement.
+                        For these cases, your append file would not even
+                        use the <filename>FILESEXTRAPATHS</filename> statement.
                     </para>
                 </note>
             </para>
@@ -678,7 +663,7 @@
             <para>
                 Use the following form when running the layer management tool.
                 <literallayout class='monospaced'>
-     $ bitbake-layers &lt;command&gt; [arguments]
+     $ bitbake-layers <replaceable>command</replaceable> [<replaceable>arguments</replaceable>]
                 </literallayout>
                 The following list describes the available commands:
                 <itemizedlist>
@@ -704,6 +689,12 @@
                     <listitem><para><filename><emphasis>show-cross-depends:</emphasis></filename>
                         Lists dependency relationships between recipes that
                         cross layer boundaries.
+                        </para></listitem>
+                    <listitem><para><filename><emphasis>add-layer:</emphasis></filename>
+                        Adds a layer to <filename>bblayers.conf</filename>.
+                        </para></listitem>
+                    <listitem><para><filename><emphasis>remove-layer:</emphasis></filename>
+                        Removes a layer from <filename>bblayers.conf</filename>
                         </para></listitem>
                     <listitem><para><filename><emphasis>flatten:</emphasis></filename>
                         Flattens the layer configuration into a separate output
@@ -745,13 +736,13 @@
      ...
      DESCRIPTION = "A useful utility"
      ...
-     EXTRA_OECONF = "&dash;&dash;enable-something"
+     EXTRA_OECONF = "--enable-something"
      ...
 
      #### bbappended from meta-anotherlayer ####
 
      DESCRIPTION = "Customized utility"
-     EXTRA_OECONF += "&dash;&dash;enable-somethingelse"
+     EXTRA_OECONF += "--enable-somethingelse"
                                 </literallayout>
                                 Ideally, you would tidy up these utilities as
                                 follows:
@@ -759,7 +750,7 @@
      ...
      DESCRIPTION = "Customized utility"
      ...
-     EXTRA_OECONF = "&dash;&dash;enable-something &dash;&dash;enable-somethingelse"
+     EXTRA_OECONF = "--enable-something --enable-somethingelse"
      ...
                                 </literallayout></para></listitem>
                         </itemizedlist></para></listitem>
@@ -782,7 +773,7 @@
                 The default mode of the script's operation is to prompt you for
                 information needed to generate the layer:
                 <itemizedlist>
-                    <listitem><para>The layer priority
+                    <listitem><para>The layer priority.
                         </para></listitem>
                     <listitem><para>Whether or not to create a sample recipe.
                         </para></listitem>
@@ -823,7 +814,7 @@
                         This directory contains the layer's configuration file.
                         The root name for the file is the same as the root name
                         your provided for the layer (e.g.
-                        <filename>&lt;layer&gt;.conf</filename>).
+                        <filename><replaceable>layer</replaceable>.conf</filename>).
                         </para></listitem>
                     <listitem><para><emphasis>The
                         <filename>COPYING.MIT</filename> file:</emphasis>
@@ -839,7 +830,7 @@
             <para>
                 If you choose to generate a sample recipe file, the script
                 prompts you for the name for the recipe and then creates it
-                in <filename>&lt;layer&gt;/recipes-example/example/</filename>.
+                in <filename><replaceable>layer</replaceable>/recipes-example/example/</filename>.
                 The script creates a <filename>.bb</filename> file and a
                 directory, which contains a sample
                 <filename>helloworld.c</filename> source file, along with
@@ -851,7 +842,7 @@
             <para>
                 If you choose to generate a sample append file, the script
                 prompts you for the name for the file and then creates it
-                in <filename>&lt;layer&gt;/recipes-example-bbappend/example-bbappend/</filename>.
+                in <filename><replaceable>layer</replaceable>/recipes-example-bbappend/example-bbappend/</filename>.
                 The script creates a <filename>.bbappend</filename> file and a
                 directory, which contains a sample patch file.
                 If you do not provide a recipe name, the script uses
@@ -882,11 +873,6 @@
         /usr/local/src/yocto/meta-yocto \
         /usr/local/src/yocto/meta-yocto-bsp \
         /usr/local/src/yocto/meta-mylayer \
-        "
-
-     BBLAYERS_NON_REMOVABLE ?= " \
-        /usr/local/src/yocto/meta \
-        /usr/local/src/yocto/meta-yocto \
         "
                 </literallayout>
                 Adding the layer to this file enables the build system to
@@ -990,11 +976,20 @@
             <para>
                 To understand how these features work, the best reference is
                 <filename>meta/classes/core-image.bbclass</filename>.
+                This class lists out the available
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-IMAGE_FEATURES'><filename>IMAGE_FEATURES</filename></ulink>
+                of which most map to package groups while some, such as
+                <filename>debug-tweaks</filename> and
+                <filename>read-only-rootfs</filename>, resolve as general
+                configuration settings.
+            </para>
+
+            <para>
                 In summary, the file looks at the contents of the
                 <filename>IMAGE_FEATURES</filename> variable and then maps
-                those contents into a set of package groups.
+                or configures the feature accordingly.
                 Based on this information, the build system automatically
-                adds the appropriate packages to the
+                adds the appropriate packages or configurations to the
                 <ulink url='&YOCTO_DOCS_REF_URL;#var-IMAGE_INSTALL'><filename>IMAGE_INSTALL</filename></ulink>
                 variable.
                 Effectively, you are enabling extra features by extending the
@@ -1071,7 +1066,7 @@
                 <filename><ulink url='&YOCTO_DOCS_REF_URL;#var-IMAGE_INSTALL'>IMAGE_INSTALL</ulink></filename>
                 variable.
                 You must use the OpenEmbedded notation and not the Debian notation for the names
-                (e.g. <filename>eglibc-dev</filename> instead of <filename>libc6-dev</filename>).
+                (e.g. <filename>glibc-dev</filename> instead of <filename>libc6-dev</filename>).
             </para>
 
             <para>
@@ -1094,18 +1089,27 @@
                 an image is to create a custom package group recipe that is
                 used to build the image or images.
                 A good example of a package group recipe is
-                <filename>meta/recipes-core/packagegroups/packagegroup-core-boot.bb</filename>.
-                The
+                <filename>meta/recipes-core/packagegroups/packagegroup-base.bb</filename>.
+            </para>
+
+            <para>
+                If you examine that recipe, you see that the
                 <filename><ulink url='&YOCTO_DOCS_REF_URL;#var-PACKAGES'>PACKAGES</ulink></filename>
-                variable lists the package group packages you wish to produce.
-                <filename>inherit packagegroup</filename> sets appropriate
-                default values and automatically adds <filename>-dev</filename>,
-                <filename>-dbg</filename>, and <filename>-ptest</filename>
-                complementary packages for every package specified in
-                <filename>PACKAGES</filename>.
-                Note that the inherit line should be towards
-                the top of the recipe, certainly before you set
-                <filename>PACKAGES</filename>.
+                variable lists the package group packages to produce.
+                The <filename>inherit packagegroup</filename> statement
+                sets appropriate default values and automatically adds
+                <filename>-dev</filename>, <filename>-dbg</filename>, and
+                <filename>-ptest</filename> complementary packages for each
+                package specified in the <filename>PACKAGES</filename>
+                statement.
+                <note>
+                    The <filename>inherit packages</filename> should be
+                    located near the top of the recipe, certainly before
+                    the <filename>PACKAGES</filename> statement.
+                </note>
+            </para>
+
+            <para>
                 For each package you specify in <filename>PACKAGES</filename>,
                 you can use
                 <filename><ulink url='&YOCTO_DOCS_REF_URL;#var-RDEPENDS'>RDEPENDS</ulink></filename>
@@ -1113,7 +1117,13 @@
                 <filename><ulink url='&YOCTO_DOCS_REF_URL;#var-RRECOMMENDS'>RRECOMMENDS</ulink></filename>
                 entries to provide a list of packages the parent task package
                 should contain.
-                Following is an example:
+                You can see examples of these further down in the
+                <filename>packagegroup-base.bb</filename> recipe.
+            </para>
+
+            <para>
+                Here is a short, fabricated example showing the same basic
+                pieces:
                 <literallayout class='monospaced'>
      DESCRIPTION = "My Custom Package Groups"
 
@@ -1132,8 +1142,7 @@
      RDEPENDS_packagegroup-custom-tools = "\
          oprofile \
          oprofileui-server \
-         lttng-control \
-         lttng-viewer"
+         lttng-tools"
 
      RRECOMMENDS_packagegroup-custom-tools = "\
          kernel-module-oprofile"
@@ -1149,6 +1158,63 @@
                 <filename>packagegroup-custom-tools</filename> to
                 <filename><ulink url='&YOCTO_DOCS_REF_URL;#var-IMAGE_INSTALL'>IMAGE_INSTALL</ulink></filename>.
                 For other forms of image dependencies see the other areas of this section.
+            </para>
+        </section>
+
+        <section id='usingpoky-extend-customimage-image-name'>
+            <title>Customizing an Image Hostname</title>
+
+            <para>
+                By default, the configured hostname (i.e.
+                <filename>/etc/hostname</filename>) in an image is the
+                same as the machine name.
+                For example, if
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>
+                equals "qemux86", the configured hostname written to
+                <filename>/etc/hostname</filename> is "qemux86".
+            </para>
+
+            <para>
+                You can customize this name by altering the value of the
+                "hostname" variable in the
+                <filename>base-files</filename> recipe using either
+                an append file or a configuration file.
+                Use the following in an append file:
+                <literallayout class='monospaced'>
+     hostname="myhostname"
+                </literallayout>
+                Use the following in a configuration file:
+                <literallayout class='monospaced'>
+     hostname_pn-base-files = "myhostname"
+                </literallayout>
+            </para>
+
+            <para>
+                Changing the default value of the variable "hostname" can be
+                useful in certain situations.
+                For example, suppose you need to do extensive testing on an
+                image and you would like to easily identify the image
+                under test from existing images with typical default
+                hostnames.
+                In this situation, you could change the default hostname to
+                "testme", which results in all the images using the name
+                "testme".
+                Once testing is complete and you do not need to rebuild the
+                image for test any longer, you can easily reset the default
+                hostname.
+            </para>
+
+            <para>
+                Another point of interest is that if you unset the variable,
+                the image will have no default hostname in the filesystem.
+                Here is an example that unsets the variable in a
+                configuration file:
+                <literallayout class='monospaced'>
+     hostname_pn-base-files = ""
+                </literallayout>
+                Having no default hostname in the filesystem is suitable for
+                environments that use dynamic hostnames such as virtual
+                machines.
             </para>
         </section>
     </section>
@@ -1182,61 +1248,167 @@
             </para>
         </section>
 
-        <section id='new-recipe-locate-a-base-recipe'>
-            <title>Locate a Base Recipe</title>
+        <section id='new-recipe-locate-or-automatically-create-a-base-recipe'>
+            <title>Locate or Automatically Create a Base Recipe</title>
 
             <para>
-                Before writing a recipe from scratch, it is often useful to
-                discover whether someone else has already written one that
-                meets (or comes close to meeting) your needs.
-                The Yocto Project and OpenEmbedded communities maintain many
-                recipes that might be candidates for what you are doing.
-                You can find a good central index of these recipes in the
-                <ulink url='http://layers.openembedded.org'>OpenEmbedded metadata index</ulink>.
-            </para>
-
-            <para>
-                Working from an existing recipe or a skeleton recipe is the
-                best way to get started.
-                Here are some points on both methods:
+                You can always write a recipe from scratch.
+                However, two choices exist that can help you quickly get a
+                start on a new recipe:
                 <itemizedlist>
-                    <listitem><para><emphasis>Locate and modify a recipe that
-                        is close to what you want to do:</emphasis>
-                        This method works when you are familiar with the
-                        current recipe space.
-                        The method does not work so well for those new to
-                        the Yocto Project or writing recipes.</para>
-                        <para>Some risks associated with this method are
-                        using a recipe that has areas totally unrelated to
-                        what you are trying to accomplish with your recipe,
-                        not recognizing areas of the recipe that you might
-                        have to add from scratch, and so forth.
-                        All these risks stem from unfamiliarity with the
-                        existing recipe space.</para></listitem>
-                    <listitem><para><emphasis>Use and modify the following
-                        skeleton recipe:</emphasis>
-                        <literallayout class='monospaced'>
-     SUMMARY = ""
-     HOMEPAGE = ""
-     LICENSE = ""
-
-     LIC_FILES_CHKSUM = ""
-
-     SRC_URI = ""
-     SRC_URI[md5sum] = ""
-     SRC_URI[sha256sum] = ""
-
-     S = "${WORKDIR}/${PN}-${PV}"
-
-     inherit &lt;stuff&gt;
-                        </literallayout>
-                        Modifying this recipe is the recommended method for
-                        creating a new recipe.
-                        The recipe provides the fundamental areas that you need
-                        to include, exclude, or alter to fit your needs.
+                    <listitem><para><emphasis><filename>recipetool</filename>:</emphasis>
+                        A tool provided by the Yocto Project that automates
+                        creation of a base recipe based on the source
+                        files.
+                        </para></listitem>
+                    <listitem><para><emphasis>Existing Recipes:</emphasis>
+                        Location and modification of an existing recipe that is
+                        similar in function to the recipe you need.
                         </para></listitem>
                 </itemizedlist>
             </para>
+
+            <section id='new-recipe-creating-the-base-recipe-using-recipetool'>
+                <title>Creating the Base Recipe Using <filename>recipetool</filename></title>
+
+                <para>
+                    <filename>recipetool</filename> automates creation of
+                    a base recipe given a set of source code files.
+                    As long as you can extract or point to the source files,
+                    the tool will construct a recipe and automatically
+                    configure all pre-build information into the recipe.
+                    For example, suppose you have an application that builds
+                    using Autotools.
+                    Creating the base recipe using
+                    <filename>recipetool</filename> results in a recipe
+                    that has the pre-build dependencies, license requirements,
+                    and checksums configured.
+                </para>
+
+                <para>
+                    To run the tool, you just need to be in your
+                    <link linkend='build-directory'>Build Directory</link>
+                    and have sourced the build environment setup script
+                    (i.e.
+                    <ulink url='&YOCTO_DOCS_REF_URL;#structure-core-script'><filename>oe-init-build-env</filename></ulink>
+                    or
+                    <ulink url='&YOCTO_DOCS_REF_URL;#structure-memres-core-script'><filename>oe-init-build-env-memres</filename></ulink>).
+                    Here is the basic <filename>recipetool</filename> syntax:
+                    <note>
+                        Running <filename>recipetool -h</filename> or
+                        <filename>recipetool create -h</filename> produces the
+                        Python-generated help, which presented differently
+                        than what follows here.
+                    </note>
+                    <literallayout class='monospaced'>
+     recipetool -h
+     recipetool create [-h]
+     recipetool [-d] [-q] [--color auto | always | never ] create -o <replaceable>OUTFILE</replaceable> [-m] [-x <replaceable>EXTERNALSRC</replaceable>] <replaceable>source</replaceable>
+
+          -d       Enables debug output.
+          -q       Outputs only errors (quiet mode).
+          --color  Colorizes the output automatically, always, or never.
+          -h       Displays Python generated syntax for recipetool.
+          create   Causes recipetool to create a base recipe.  The create
+                   command is further defined with these options:
+
+                   -o <replaceable>OUTFILE</replaceable>      Specifies the full path and filename for the generated
+                                   recipe.
+                   -m              Causes the recipe to be machine-specific rather than
+                                   architecture-specific (default).
+                   -x <replaceable>EXTERNALSRC</replaceable>  Fetches and extracts source files from <replaceable>source</replaceable>
+                                   and places them in <replaceable>EXTERNALSRC</replaceable>.
+                                   <replaceable>source</replaceable> must be a URL.
+                   -h              Displays Python-generated syntax for create.
+                   <replaceable>source</replaceable>          Specifies the source code on which to base the
+                                   recipe.
+                    </literallayout>
+                </para>
+
+                <para>
+                    Running <filename>recipetool create -o</filename>&nbsp;<replaceable>OUTFILE</replaceable>
+                    creates the base recipe and locates it properly in the
+                    layer that contains your source files.
+                    Following are some syntax examples:
+                </para>
+
+                <para>
+                    Use this syntax to generate a recipe based on <replaceable>source</replaceable>.
+                    Once generated, the recipe resides in the existing source
+                    code layer:
+                    <literallayout class='monospaced'>
+     recipetool create -o <replaceable>OUTFILE</replaceable>&nbsp;<replaceable>source</replaceable>
+                    </literallayout>
+                    Use this syntax to generate a recipe using code that you
+                    extract from <replaceable>source</replaceable>.
+                    The extracted code is placed in its own layer defined
+                    by <replaceable>EXTERNALSRC</replaceable>.
+                    <literallayout class='monospaced'>
+     recipetool create -o <replaceable>OUTFILE</replaceable> -x <replaceable>EXTERNALSRC</replaceable> <replaceable>source</replaceable>
+                    </literallayout>
+                    Use this syntax to generate a recipe based on <replaceable>source</replaceable>.
+                    The options direct <filename>recipetool</filename> to
+                    run in "quiet mode" and to generate debugging information.
+                    Once generated, the recipe resides in the existing source
+                    code layer:
+                    <literallayout class='monospaced'>
+     recipetool create -o <replaceable>OUTFILE</replaceable> <replaceable>source</replaceable>
+                    </literallayout>
+                </para>
+            </section>
+
+            <section id='new-recipe-locating-and-using-a-similar-recipe'>
+                <title>Locating and Using a Similar Recipe</title>
+
+                <para>
+                    Before writing a recipe from scratch, it is often useful to
+                    discover whether someone else has already written one that
+                    meets (or comes close to meeting) your needs.
+                    The Yocto Project and OpenEmbedded communities maintain many
+                    recipes that might be candidates for what you are doing.
+                    You can find a good central index of these recipes in the
+                    <ulink url='http://layers.openembedded.org'>OpenEmbedded metadata index</ulink>.
+                </para>
+
+                <para>
+                    Working from an existing recipe or a skeleton recipe is the
+                    best way to get started.
+                    Here are some points on both methods:
+                    <itemizedlist>
+                        <listitem><para><emphasis>Locate and modify a recipe that
+                            is close to what you want to do:</emphasis>
+                            This method works when you are familiar with the
+                            current recipe space.
+                            The method does not work so well for those new to
+                            the Yocto Project or writing recipes.</para>
+                            <para>Some risks associated with this method are
+                            using a recipe that has areas totally unrelated to
+                            what you are trying to accomplish with your recipe,
+                            not recognizing areas of the recipe that you might
+                            have to add from scratch, and so forth.
+                            All these risks stem from unfamiliarity with the
+                            existing recipe space.</para></listitem>
+                        <listitem><para><emphasis>Use and modify the following
+                            skeleton recipe:</emphasis>
+                            If for some reason you do not want to use
+                            <filename>recipetool</filename> and you cannot
+                            find an existing recipe that is close to meeting
+                            your needs, you can use the following structure to
+                            provide the fundamental areas of a new recipe.
+                            <literallayout class='monospaced'>
+     DESCRIPTION = ""
+     HOMEPAGE = ""
+     LICENSE = ""
+     SECTION = ""
+     DEPENDS = ""
+     LIC_FILES_CHKSUM = ""
+
+     SRC_URI = ""
+                            </literallayout>
+                            </para></listitem>
+                    </itemizedlist>
+                </para>
+            </section>
         </section>
 
         <section id='new-recipe-storing-and-naming-the-recipe'>
@@ -1274,7 +1446,7 @@
                     When you name your recipe, you need to follow this naming
                     convention:
                     <literallayout class='monospaced'>
-     &lt;basename&gt;_&lt;version&gt;.bb
+     <replaceable>basename</replaceable>_<replaceable>version</replaceable>.bb
                     </literallayout>
                     Use lower-cased characters and do not include the reserved
                     suffixes <filename>-native</filename>,
@@ -1394,13 +1566,13 @@
                         </note>
                         </para></listitem>
                     <listitem><para><emphasis>Using Variables: <filename>${...}</filename></emphasis> -
-                        Use the <filename>${&lt;varname&gt;}</filename> syntax to
+                        Use the <filename>${<replaceable>varname</replaceable>}</filename> syntax to
                         access the contents of a variable:
                         <literallayout class='monospaced'>
      SRC_URI = "${SOURCEFORGE_MIRROR}/libpng/zlib-${PV}.tar.gz"
                         </literallayout>
                         </para></listitem>
-                    <listitem><para><emphasis>Quote All Assignments: <filename>"&lt;value&gt;"</filename></emphasis> -
+                    <listitem><para><emphasis>Quote All Assignments: <filename>"<replaceable>value</replaceable>"</filename></emphasis> -
                         Use double quotes around the value in all variable
                         assignments.
                         <literallayout class='monospaced'>
@@ -1541,12 +1713,12 @@
                         Realize that some layers have a policy to use spaces
                         for all indentation.
                         </para></listitem>
-                    <listitem><para><emphasis>Using Python for Complex Operations: <filename>${@&lt;python_code&gt;}</filename></emphasis> -
+                    <listitem><para><emphasis>Using Python for Complex Operations: <filename>${@<replaceable>python_code</replaceable>}</filename></emphasis> -
                         For more advanced processing, it is possible to use
                         Python code during variable assignments (e.g.
                         search and replacement on a variable).</para>
                         <para>You indicate Python code using the
-                        <filename>${@&lt;python_code&gt;}</filename>
+                        <filename>${@<replaceable>python_code</replaceable>}</filename>
                         syntax for the variable assignment:
                         <literallayout class='monospaced'>
      SRC_URI = "ftp://ftp.info-zip.org/pub/infozip/src/zip${@d.getVar('PV',1).replace('.', '')}.tgz
@@ -1589,10 +1761,10 @@
                 <link linkend='build-directory'>Build Directory</link>,
                 use BitBake to process your recipe.
                 All you need to provide is the
-                <filename>&lt;basename&gt;</filename> of the recipe as described
+                <filename><replaceable>basename</replaceable></filename> of the recipe as described
                 in the previous section:
                 <literallayout class='monospaced'>
-     $ bitbake &lt;basename&gt;
+     $ bitbake <replaceable>basename</replaceable>
                 </literallayout>
 
             </para>
@@ -1632,7 +1804,7 @@
                     You can find log files for each task in the recipe's
                     <filename>temp</filename> directory (e.g.
                     <filename>poky/build/tmp/work/qemux86-poky-linux/foo/1.3.0-r0/temp</filename>).
-                    Log files are named <filename>log.&lt;taskname&gt;</filename>
+                    Log files are named <filename>log.<replaceable>taskname</replaceable></filename>
                     (e.g. <filename>log.do_configure</filename>,
                     <filename>log.do_fetch</filename>, and
                     <filename>log.do_compile</filename>).
@@ -1810,8 +1982,9 @@
 
             <para>
                 If no <filename>SRC_URI</filename> checksums are specified
-                when you attempt to build the recipe, the build will produce
-                an error for each missing checksum.
+                when you attempt to build the recipe, or you provide an
+                incorrect checksum, the build will produce an error for each
+                missing or incorrect checksum.
                 As part of the error message, the build system provides
                 the checksum string corresponding to the fetched file.
                 Once you have the correct checksums, you can copy and paste
@@ -1858,8 +2031,11 @@
 
             <para>
                 The previous example also specifies a patch file.
-                Patch files are files whose names end in
-                <filename>.patch</filename> or <filename>.diff</filename>.
+                Patch files are files whose names usually end in
+                <filename>.patch</filename> or <filename>.diff</filename> but
+                can end with compressed suffixes such as
+                <filename>diff.gz</filename> and
+                <filename>patch.bz2</filename>, for example.
                 The build system automatically applies patches as described
                 in the
                 "<link linkend='new-recipe-patching-code'>Patching Code</link>" section.
@@ -1905,7 +2081,9 @@
                 fetched.
                 Any files mentioned in <filename>SRC_URI</filename> whose
                 names end in <filename>.patch</filename> or
-                <filename>.diff</filename> are treated as patches.
+                <filename>.diff</filename> or compressed versions of these
+                suffixes (e.g. <filename>diff.gz</filename> are treated as
+                patches.
                 The
                 <ulink url='&YOCTO_DOCS_REF_URL;#ref-tasks-patch'><filename>do_patch</filename></ulink>
                 task automatically applies these patches.
@@ -1929,7 +2107,9 @@
                 using <filename>file://</filename>, you should place
                 patch files in a directory next to the recipe either
                 named the same as the base name of the recipe
-                (<ulink url='&YOCTO_DOCS_REF_URL;#var-BPN'><filename>BPN</filename></ulink>),
+                (<ulink url='&YOCTO_DOCS_REF_URL;#var-BP'><filename>BP</filename></ulink>
+                and
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-BPN'><filename>BPN</filename></ulink>)
                 or "files".
             </para>
         </section>
@@ -1993,6 +2173,12 @@
                         incorrect md5 strings, attempt to build the software,
                         and then note the resulting error messages that will
                         report the correct md5 strings.
+                        See the
+                        "<link linkend='new-recipe-fetching-code'>Fetching Code</link>"
+                        section for additional information.
+                    </para>
+
+                    <para>
                         Here is an example that assumes the software has a
                         <filename>COPYING</filename> file:
                         <literallayout class='monospaced'>
@@ -2063,6 +2249,19 @@
                 Typically, setting these options is accomplished by running a
                 configure script with some options, or by modifying a build
                 configuration file.
+                <note>
+                    As of Yocto Project Release 7.1, some of the core recipes
+                    that package binary configuration scripts now disable the
+                    scripts due to the scripts previously requiring error-prone
+                    path substitution.
+                    The OpenEmbedded build system uses
+                    <filename>pkg-config</filename> now, which is much more
+                    robust.
+                    You can find a list of the <filename>*-config</filename>
+                    scripts that are disabled list in the
+                    "<ulink url='&YOCTO_DOCS_REF_URL;#migration-1.7-binary-configuration-scripts-disabled'>Binary Configuration Scripts Disabled</ulink>"
+                    section in the Yocto Project Reference Manual.
+                </note>
             </para>
 
             <para>
@@ -2087,7 +2286,7 @@
                         <filename>configure.ac</filename> file, then your
                         software is built using Autotools.
                         If this is the case, you just need to worry about
-                        tweaking the configuration.</para>
+                        modifying the configuration.</para>
                         <para>When using Autotools, your recipe needs to inherit
                         the
                         <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-autotools'><filename>autotools</filename></ulink>
@@ -2104,7 +2303,7 @@
                         <filename>CMakeLists.txt</filename> file, then your
                         software is built using CMake.
                         If this is the case, you just need to worry about
-                        tweaking the configuration.</para>
+                        modifying the configuration.</para>
                         <para>When you use CMake, your recipe needs to inherit
                         the
                         <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-cmake'><filename>cmake</filename></ulink>
@@ -2136,7 +2335,7 @@
                         configure script with the appropriate options.</para>
                         <para>For the case involving a custom configure
                         script, you would run
-                        <filename>./configure &dash;&dash;help</filename> and look for
+                        <filename>./configure --help</filename> and look for
                         the options you need to set.</para></listitem>
                 </itemizedlist>
             </para>
@@ -2152,14 +2351,14 @@
                 that it did not find something that it needed for some
                 desired optional functionality, then you would need to add
                 those to <filename>DEPENDS</filename>.
-                Looking at the log might also reveal items being checked for
-                and/or enabled that you do not want, or items not being found
+                Looking at the log might also reveal items being checked for,
+                enabled, or both that you do not want, or items not being found
                 that are in <filename>DEPENDS</filename>, in which case
                 you would need to look at passing extra options to the
                 configure script as needed.
                 For reference information on configure options specific to the
                 software you are building, you can consult the output of the
-                <filename>./configure &dash;&dash;help</filename> command within
+                <filename>./configure --help</filename> command within
                 <filename>${S}</filename> or consult the software's upstream
                 documentation.
             </para>
@@ -2178,7 +2377,16 @@
             <para>
                 However, if the compile step fails, you need to diagnose the
                 failure.
-                Here are some common issues that cause failures:
+                Here are some common issues that cause failures.
+                <note>
+                    For cases where improper paths are detected for
+                    configuration files or for when libraries/headers cannot
+                    be found, be sure you are using the more robust
+                    <filename>pkg-config</filename>.
+                    See the note in section
+                    "<link linkend='new-recipe-configuring-the-recipe'>Configuring the Recipe</link>"
+                    for additional information.
+                </note>
                 <itemizedlist>
                     <listitem><para><emphasis>Parallel build failures:</emphasis>
                         These failures manifest themselves as intermittent
@@ -2197,7 +2405,12 @@
                         to an empty string:
                         <literallayout class='monospaced'>
      PARALLEL_MAKE = ""
-                        </literallayout></para></listitem>
+                        </literallayout></para>
+                        <para>
+                            For information on parallel Makefile issues, see the
+                            "<link linkend='debugging-parallel-make-races'>Debugging Parallel Make Races</link>"
+                            section.
+                            </para></listitem>
                     <listitem><para><emphasis>Improper host path usage:</emphasis>
                         This failure applies to recipes building for the target
                         or <filename>nativesdk</filename> only.
@@ -2287,7 +2500,7 @@
                         <filename>make install</filename>, you should do this
                         using a <filename>do_install_append</filename> function
                         using the install command as described in
-                        <emphasis>Manual</emphasis> later in this list.
+                        the "Manual" bulleted item later in this list.
                         </para></listitem>
                     <listitem><para><emphasis>Other (using
                         <filename>make install</filename>):</emphasis>
@@ -2336,39 +2549,47 @@
                 files have been installed correctly.
             </para>
 
-            <note>
-                During the installation process, you might need to modify
-                some of the installed files to suit the target layout.
-                For example, you might need to replace hard-coded paths in an
-                initscript with values of variables provided by the build
-                system, such as replacing <filename>/usr/bin/</filename> with
-                <filename>${bindir}</filename>.
-                If you do perform such modifications during
-                <filename>do_install</filename>, be sure to modify the
-                destination file after copying rather than before copying.
-                Modifying after copying ensures that the build system can
-                re-execute <filename>do_install</filename> if needed.
-            </note>
-
-            <note>
-                <filename>oe_runmake install</filename>, which can be run
-                directly or can be run indirectly by the
-                <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-autotools'><filename>autotools</filename></ulink>
-                and
-                <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-cmake'><filename>cmake</filename></ulink>
-                classes, runs <filename>make install</filename> in parallel.
-                Sometimes, a Makefile can have missing dependencies between
-                targets that can result in race conditions.
-                If you experience intermittent failures during
-                <filename>do_install</filename>, you might be able to work
-                around them by disabling parallel Makefile installs
-                by adding the following to the recipe:
-                <literallayout class='monospaced'>
+            <note><title>Notes</title>
+                <itemizedlist>
+                    <listitem><para>
+                        During the installation process, you might need to
+                        modify some of the installed files to suit the target
+                        layout.
+                        For example, you might need to replace hard-coded paths
+                        in an initscript with values of variables provided by
+                        the build system, such as replacing
+                        <filename>/usr/bin/</filename> with
+                        <filename>${bindir}</filename>.
+                        If you do perform such modifications during
+                        <filename>do_install</filename>, be sure to modify the
+                        destination file after copying rather than before
+                        copying.
+                        Modifying after copying ensures that the build system
+                        can re-execute <filename>do_install</filename> if
+                        needed.
+                        </para></listitem>
+                    <listitem><para>
+                        <filename>oe_runmake install</filename>, which can be
+                        run directly or can be run indirectly by the
+                        <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-autotools'><filename>autotools</filename></ulink>
+                        and
+                        <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-cmake'><filename>cmake</filename></ulink>
+                        classes, runs <filename>make install</filename> in
+                        parallel.
+                        Sometimes, a Makefile can have missing dependencies
+                        between targets that can result in race conditions.
+                        If you experience intermittent failures during
+                        <filename>do_install</filename>, you might be able to
+                        work around them by disabling parallel Makefile
+                        installs by adding the following to the recipe:
+                        <literallayout class='monospaced'>
      PARALLEL_MAKEINST = ""
-                </literallayout>
-                See
-                <ulink url='&YOCTO_DOCS_REF_URL;#var-PARALLEL_MAKEINST'><filename>PARALLEL_MAKEINST</filename></ulink>
-                for additional information.
+                        </literallayout>
+                        See
+                        <ulink url='&YOCTO_DOCS_REF_URL;#var-PARALLEL_MAKEINST'><filename>PARALLEL_MAKEINST</filename></ulink>
+                        for additional information.
+                        </para></listitem>
+                </itemizedlist>
             </note>
         </section>
 
@@ -2464,7 +2685,9 @@
                         that files are split up and packaged correctly.
                         </para></listitem>
                     <listitem><para><emphasis>Running QA Checks</emphasis>:
-                        The <filename>insane</filename> class adds a step to
+                        The
+                        <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-insane'><filename>insane</filename></ulink>
+                        class adds a step to
                         the package generation process so that output quality
                         assurance checks are generated by the OpenEmbedded
                         build system.
@@ -2507,28 +2730,25 @@
                         is configured, it might be important to mark the
                         packages produced as being specific to a particular
                         machine, or to mark them as not being specific to
-                        a particular machine or architecture at all.
-                        By default, packages produced for the target are
-                        marked as being specific to the architecture of the
-                        target machine because that is usually the desired
-                        result.
-                        However, if the recipe configures the software to be
-                        built specific to the target machine (e.g. the
+                        a particular machine or architecture at all.</para>
+                        <para>By default, packages apply to any machine with the
+                        same architecture as the target machine.
+                        When a recipe produces packages that are
+                        machine-specific (e.g. the
                         <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>
                         value is passed into the configure script or a patch
-                        is applied only for a particular machine), then you
-                        should mark the packages produced as being
-                        machine-specific by adding the following to the
+                        is applied only for a particular machine), you should
+                        mark them as such by adding the following to the
                         recipe:
                         <literallayout class='monospaced'>
      PACKAGE_ARCH = "${MACHINE_ARCH}"
-                        </literallayout>
-                        On the other hand, if the recipe produces packages
+                        </literallayout></para>
+                        <para>On the other hand, if the recipe produces packages
                         that do not contain anything specific to the target
                         machine or architecture at all (e.g. recipes
                         that simply package script files or configuration
                         files), you should use the
-                        <ulink url='&YOCTO_DOCS_REF_URL;#allarch'><filename>allarch</filename></ulink>
+                        <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-allarch'><filename>allarch</filename></ulink>
                         class to do this for you by adding this to your
                         recipe:
                         <literallayout class='monospaced'>
@@ -2537,7 +2757,7 @@
                         Ensuring that the package architecture is correct is
                         not critical while you are doing the first few builds
                         of your recipe.
-                        However, it is important in order to
+                        However, it is important in order
                         to ensure that your recipe rebuilds (or does not
                         rebuild) appropriately in response to changes in
                         configuration, and to ensure that you get the
@@ -2575,7 +2795,7 @@
                 recommended convention is to set
                 <ulink url='&YOCTO_DOCS_REF_URL;#var-PV'><filename>PV</filename></ulink>
                 within the recipe to
-                "&lt;previous version&gt;+&lt;current version&gt;".
+                "<replaceable>previous_version</replaceable>+<replaceable>current_version</replaceable>".
                 You can use an additional variable so that you can use the
                 current version elsewhere.
                 Here is an example:
@@ -2591,7 +2811,7 @@
 
             <para>
                 Post-installation scripts run immediately after installing
-                a package on the target, or during image creation when a
+                a package on the target or during image creation when a
                 package is included in an image.
                 To add a post-installation script to a package, add a
                 <filename>pkg_postinst_PACKAGENAME()</filename> function to
@@ -2609,7 +2829,6 @@
                 A post-installation function has the following structure:
                 <literallayout class='monospaced'>
      pkg_postinst_PACKAGENAME() {
-     #!/bin/sh -e
      # Commands to carry out
      }
                 </literallayout>
@@ -2632,7 +2851,6 @@
                 structure in the post-installation script:
                 <literallayout class='monospaced'>
      pkg_postinst_PACKAGENAME() {
-     #!/bin/sh -e
      if [ x"$D" = "x" ]; then
           # Actions to carry out on the device go here
      else
@@ -2703,7 +2921,7 @@
 
                 <para>
                     Building an application from a single file that is stored
-                    locally (e.g. under <filename>files/</filename>) requires
+                    locally (e.g. under <filename>files</filename>) requires
                     a recipe that has the file listed in the
                     <filename><ulink url='&YOCTO_DOCS_REF_URL;#var-SRC_URI'>SRC_URI</ulink></filename>
                     variable.
@@ -2794,7 +3012,7 @@
                     If you need additional <filename>make</filename> options, you should store them in the
                     <filename><ulink url='&YOCTO_DOCS_REF_URL;#var-EXTRA_OEMAKE'>EXTRA_OEMAKE</ulink></filename>
                     variable.
-                    BitBake passes these options into the <filename>make</filename> GNU invocation.
+                    BitBake passes these options into the GNU <filename>make</filename> invocation.
                     Note that a <filename>do_install</filename> task is still required.
                     Otherwise, BitBake runs an empty <filename>do_install</filename> task by default.
                 </para>
@@ -2868,11 +3086,10 @@
                     <literallayout class='monospaced'>
      require xorg-lib-common.inc
 
-     SUMMARY = "X11 Pixmap library"
-     LICENSE = "X-BSD"
-     LIC_FILES_CHKSUM = "file://COPYING;md5=3e07763d16963c3af12db271a31abaa5"
+     SUMMARY = "Xpm: X Pixmap extension library"
+     LICENSE = "BSD"
+     LIC_FILES_CHKSUM = "file://COPYING;md5=51f4270b012ecd4ab1a164f5f4ed6cf7"
      DEPENDS += "libxext libsm libxt"
-     PR = "r3"
      PE = "1"
 
      XORG_PN = "libXpm"
@@ -3006,7 +3223,7 @@
             <note>
                 Although well within the capabilities of the Yocto Project,
                 adding a totally new architecture might require
-                changes to <filename>gcc/eglibc</filename> and to the site
+                changes to <filename>gcc/glibc</filename> and to the site
                 information, which is beyond the scope of this manual.
             </note>
         </para>
@@ -3045,7 +3262,7 @@
                     <listitem><para><filename><ulink url='&YOCTO_DOCS_REF_URL;#var-TARGET_ARCH'>TARGET_ARCH</ulink></filename>
                         (e.g. "arm")</para></listitem>
                     <listitem><para><filename><ulink url='&YOCTO_DOCS_REF_URL;#var-PREFERRED_PROVIDER'>PREFERRED_PROVIDER</ulink>_virtual/kernel</filename>
-                        (see below)</para></listitem>
+                        </para></listitem>
                     <listitem><para><filename><ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE_FEATURES'>MACHINE_FEATURES</ulink></filename>
                         (e.g. "apm screen wifi")</para></listitem>
                 </itemizedlist>
@@ -3119,6 +3336,10 @@
                 <literallayout class='monospaced'>
      COMPATIBLE_MACHINE = '(qemux86|qemumips)'
                 </literallayout>
+                For more information on <filename>defconfig</filename> files,
+                see the
+                "<ulink url='&YOCTO_DOCS_KERNEL_DEV_URL;#changing-the-configuration'>Changing the Configuration</ulink>"
+                section in the Yocto Project Linux Kernel Development Manual.
             </para>
         </section>
 
@@ -3352,7 +3573,7 @@
      require conf/multilib.conf
      MULTILIBS = "multilib:lib32"
      DEFAULTTUNE_virtclass-multilib-lib32 = "x86"
-     IMAGE_INSTALL = "lib32-connman"
+     IMAGE_INSTALL_append = " lib32-glib-2.0"
                     </literallayout>
                     This example enables an
                     additional library named <filename>lib32</filename> alongside the
@@ -3363,7 +3584,7 @@
                 </para>
 
                 <para>
-                    The example then includes <filename>lib32-connman</filename>
+                    The example then includes <filename>lib32-glib-2.0</filename>
                     in all the images, which illustrates one method of including a
                     multiple library dependency.
                     You can use a normal image build to include this dependency,
@@ -3373,7 +3594,7 @@
                     </literallayout>
                     You can also build Multilib packages specifically with a command like this:
                     <literallayout class='monospaced'>
-     $ bitbake lib32-connman
+     $ bitbake lib32-glib-2.0
                     </literallayout>
                 </para>
             </section>
@@ -3515,7 +3736,7 @@
 	        The <filename>wic</filename> command and the infrastructure
 	        it is based on is by definition incomplete.
             Its purpose is to allow the generation of customized images,
-            and as such was designed to be completely extensible via a
+            and as such was designed to be completely extensible through a
             plugin interface.
             See the
             "<link linkend='openembedded-kickstart-plugins'>Plugins</link>"
@@ -3590,12 +3811,6 @@
                         development host system.
                         </para></listitem>
                     <listitem><para>
-                        The
-                        <ulink url='http://www.gnu.org/software/parted/'>GNU Parted</ulink>
-                        package must be installed on your development host
-                        system.
-                        </para></listitem>
-                    <listitem><para>
                         You need to have the build artifacts already
                         available, which typically means that you must
                         have already created an image using the
@@ -3606,6 +3821,12 @@
                         <filename>wic</filename>, the current version of
                         <filename>wic</filename> requires the artifacts
                         in the form generated by the build system.
+                        </para></listitem>
+                    <listitem><para>
+                        You must build several native tools:
+                        <literallayout class='monospaced'>
+     $ bitbake parted-native dosfstools-native mtools-native
+                        </literallayout>
                         </para></listitem>
                     <listitem><para>
                         You must have sourced one of the build environment
@@ -3629,7 +3850,7 @@
                 or by entering the command with a help argument as follows:
                 <literallayout class='monospaced'>
      $ wic -h
-     $ wic &dash;&dash;help
+     $ wic --help
                 </literallayout>
             </para>
 
@@ -3638,21 +3859,21 @@
                 <filename>create</filename> and <filename>list</filename>.
                 You can get help for these commands as follows:
                 <literallayout class='monospaced'>
-     $ wic help &lt;command&gt;
+     $ wic help <replaceable>command</replaceable>
                 </literallayout>
             </para>
 
             <para>
                 You can also get detailed help on a number of topics
                 from the help system.
-                The output of <filename>wic &dash;&dash;help</filename>
+                The output of <filename>wic --help</filename>
                 displays a list of available help
                 topics under a "Help topics" heading.
                 You can have the help system display the help text for
                 a given topic by prefacing the topic with
                 <filename>wic help</filename>:
                 <literallayout class='monospaced'>
-     $ wic help &lt;help topic&gt;
+     $ wic help <replaceable>help_topic</replaceable>
                 </literallayout>
             </para>
 
@@ -3661,9 +3882,9 @@
                 <filename>wic</filename> creates using the existing
                 kickstart files with the following form of the command:
                 <literallayout class='monospaced'>
-     $ wic list &lt;image&gt; help
+     $ wic list <replaceable>image</replaceable> help
                 </literallayout>
-                where <filename>&lt;image&gt;</filename> is either
+                where <filename><replaceable>image</replaceable></filename> is either
                 <filename>directdisk</filename> or
                 <filename>mkefidisk</filename>.
             </para>
@@ -3715,38 +3936,38 @@
                                your own custom file or use a file from a set of
                                existing files as described by further options.
 
-             -o <replaceable>OUTDIR</replaceable>, &dash;&dash;outdir=<replaceable>OUTDIR</replaceable>
+             -o <replaceable>OUTDIR</replaceable>, --outdir=<replaceable>OUTDIR</replaceable>
                                The name of a directory in which to create image.
 
-             -i <replaceable>PROPERTIES_FILE</replaceable>, &dash;&dash;infile=<replaceable>PROPERTIES_FILE</replaceable>
+             -i <replaceable>PROPERTIES_FILE</replaceable>, --infile=<replaceable>PROPERTIES_FILE</replaceable>
                                The name of a file containing the values for image
                                properties as a JSON file.
 
-             -e <replaceable>IMAGE_NAME</replaceable>, &dash;&dash;image-name=<replaceable>IMAGE_NAME</replaceable>
+             -e <replaceable>IMAGE_NAME</replaceable>, --image-name=<replaceable>IMAGE_NAME</replaceable>
                                The name of the image from which to use the artifacts
                                (e.g. <filename>core-image-sato</filename>).
 
-             -r <replaceable>ROOTFS_DIR</replaceable>, &dash;&dash;rootfs-dir=<replaceable>ROOTFS_DIR</replaceable>
+             -r <replaceable>ROOTFS_DIR</replaceable>, --rootfs-dir=<replaceable>ROOTFS_DIR</replaceable>
                                The path to the <filename>/rootfs</filename> directory to use as the
                                <filename>.wks</filename> rootfs source.
 
-             -b <replaceable>BOOTIMG_DIR</replaceable>, &dash;&dash;bootimg-dir=<replaceable>BOOTIMG_DIR</replaceable>
+             -b <replaceable>BOOTIMG_DIR</replaceable>, --bootimg-dir=<replaceable>BOOTIMG_DIR</replaceable>
                                The path to the directory containing the boot artifacts
                                (e.g. <filename>/EFI</filename> or <filename>/syslinux</filename>) to use as the <filename>.wks</filename> bootimg
                                source.
 
-             -k <replaceable>KERNEL_DIR</replaceable>, &dash;&dash;kernel-dir=<replaceable>KERNEL_DIR</replaceable>
+             -k <replaceable>KERNEL_DIR</replaceable>, --kernel-dir=<replaceable>KERNEL_DIR</replaceable>
                                The path to the directory containing the kernel to use
                                in the <filename>.wks</filename> boot image.
 
-             -n <replaceable>NATIVE_SYSROOT</replaceable>, &dash;&dash;native-sysroot=<replaceable>NATIVE_SYSROOT</replaceable>
+             -n <replaceable>NATIVE_SYSROOT</replaceable>, --native-sysroot=<replaceable>NATIVE_SYSROOT</replaceable>
                                The path to the native sysroot containing the tools to use
                                to build the image.
 
-             -s, &dash;&dash;skip-build-check
+             -s, --skip-build-check
                                Skips the build check.
 
-             -D, &dash;&dash;debug
+             -D, --debug
                                Output debug information.
                     </literallayout>
                     <note>
@@ -3881,8 +4102,8 @@
                 </para>
 
                 <para>
-                    The output specifies exactly which image was
-                    created as well as where it was created.
+                    The output specifies the exact created as well as where
+                    it was created.
                     The output also names the artifacts used and the exact
                     <filename>.wks</filename> script that was used to generate
                     the image.
@@ -3956,13 +4177,13 @@
                     </literallayout>
                     Next, the example modifies the
                     <filename>directdisksdb.wks</filename> file and changes all
-                    instances of "<filename>&dash;&dash;ondisk sda</filename>"
-                    to "<filename>&dash;&dash;ondisk sdb</filename>".
+                    instances of "<filename>--ondisk sda</filename>"
+                    to "<filename>--ondisk sdb</filename>".
                     The example changes the following two lines and leaves the
                     remaining lines untouched:
                     <literallayout class='monospaced'>
-     part /boot &dash;&dash;source bootimg-pcbios &dash;&dash;ondisk sdb &dash;&dash;label boot &dash;&dash;active &dash;&dash;align 1024
-     part / &dash;&dash;source rootfs &dash;&dash;ondisk sdb &dash;&dash;fstype=ext3 &dash;&dash;label platform &dash;&dash;align 1024
+     part /boot --source bootimg-pcbios --ondisk sdb --label boot --active --align 1024
+     part / --source rootfs --ondisk sdb --fstype=ext3 --label platform --align 1024
                     </literallayout>
                     Once the lines are changed, the example generates the
                     <filename>directdisksdb</filename> image.
@@ -4049,11 +4270,11 @@
                     somewhere other than the default
                     <filename>/var/tmp/wic</filename> directory:
                     <literallayout class='monospaced'>
-     $ wic create ~/test.wks -o /home/trz/testwic &dash;&dash;rootfs-dir \
+     $ wic create ~/test.wks -o /home/trz/testwic --rootfs-dir \
           /home/trz/yocto/yocto-image/build/tmp/work/crownbay_noemgd-poky-linux/core-image-minimal/1.0-r0/rootfs \
-          &dash;&dash;bootimg-dir /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/share \
-          &dash;&dash;kernel-dir /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/src/kernel \
-          &dash;&dash;native-sysroot /home/trz/yocto/yocto-image/build/tmp/sysroots/x86_64-linux
+          --bootimg-dir /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/share \
+          --kernel-dir /home/trz/yocto/yocto-image/build/tmp/sysroots/crownbay-noemgd/usr/src/kernel \
+          --native-sysroot /home/trz/yocto/yocto-image/build/tmp/sysroots/x86_64-linux
 
      Creating image(s)...
 
@@ -4096,7 +4317,7 @@
 	            partitions.
 	            The plugins provide a mechanism for mapping values
 	            specified in <filename>.wks</filename> files using the
-	            <filename>&dash;&dash;source</filename> keyword to a
+	            <filename>--source</filename> keyword to a
                 particular plugin implementation that populates a
                 corresponding partition.
             </para>
@@ -4105,18 +4326,18 @@
 	            A source plugin is created as a subclass of
 	            <filename>SourcePlugin</filename>.
                 The plugin file containing it is added to
-	            <filename>scripts/lib/mic/plugins/source/</filename> to
+	            <filename>scripts/lib/wic/plugins/source/</filename> to
 	            make the plugin implementation available to the
 	            <filename>wic</filename> implementation.
                 For more information, see
-	            <filename>scripts/lib/mic/pluginbase.py</filename>.
+	            <filename>scripts/lib/wic/pluginbase.py</filename>.
             </para>
 
             <para>
 	            Source plugins can also be implemented and added by
 	            external layers.
                 As such, any plugins found in a
-	            <filename>scripts/lib/mic/plugins/source/</filename>
+	            <filename>scripts/lib/wic/plugins/source/</filename>
 	            directory in an external layer are also made
 	            available.
             </para>
@@ -4125,11 +4346,11 @@
 	            When the <filename>wic</filename> implementation needs
 	            to invoke a partition-specific implementation, it looks
 	            for the plugin that has the same name as the
-	            <filename>&dash;&dash;source</filename> parameter given to
+	            <filename>--source</filename> parameter given to
                 that partition.
                 For example, if the partition is set up as follows:
                 <literallayout class='monospaced'>
-     part /boot &dash;&dash;source bootimg-pcbios   ...
+     part /boot --source bootimg-pcbios   ...
                 </literallayout>
 	            The methods defined as class members of the plugin
 	            having the matching <filename>bootimg-pcbios.name</filename>
@@ -4139,7 +4360,7 @@
             <para>
 	            To be more concrete, here is the plugin definition that
 	            matches a
-                <filename>'&dash;&dash;source bootimg-pcbios'</filename> usage,
+                <filename>--source bootimg-pcbios</filename> usage,
                 along with an example
 	            method called by the <filename>wic</filename> implementation
                 when it needs to invoke an implementation-specific
@@ -4161,7 +4382,7 @@
 	            The <filename>SourcePlugin</filename> class defines the
 	            following methods, which is the current set of methods
 	            that can be implemented or overridden by
-	            <filename>&dash;&dash;source</filename> plugins.
+	            <filename>--source</filename> plugins.
                 Any methods not implemented by a
                 <filename>SourcePlugin</filename> subclass inherit the
                 implementations present in the
@@ -4223,7 +4444,7 @@
                 The code that then needs to call the plugin methods uses
                 <filename>plugin.get_source_plugin_methods()</filename>
                 to find the method or methods needed by the call.
-                Retrieval of those methods is accomplished is accomplished
+                Retrieval of those methods is accomplished
                 by filling up a dict with keys
                 containing the method names of interest.
                 On success, these will be filled in with the actual
@@ -4273,13 +4494,14 @@
                 This command creates a partition on the system and uses the
                 following syntax:
                     <literallayout class='monospaced'>
-     part &lt;mntpoint&gt;
+     part <replaceable>mntpoint</replaceable>
                     </literallayout>
-                    The <filename>&lt;mntpoint&gt;</filename> is where the
+                    The <filename><replaceable>mntpoint</replaceable></filename>
+                    is where the
                     partition will be mounted and must be of one of the
                     following forms:
                     <itemizedlist>
-                        <listitem><para><filename>/&lt;path&gt;</filename>:
+                        <listitem><para><filename>/<replaceable>path</replaceable></filename>:
                             For example, <filename>/</filename>,
                             <filename>/usr</filename>, and
                             <filename>/home</filename></para></listitem>
@@ -4292,13 +4514,13 @@
                 <para>
                     Following are the supported options:
                     <itemizedlist>
-                        <listitem><para><emphasis><filename>&dash;&dash;size</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--size</filename>:</emphasis>
                             The minimum partition size in MBytes.
                             Specify an integer value such as 500.
                             Do not append the number with "MB".
                             You do not need this option if you use
-                            <filename>&dash;&dash;source</filename>.</para></listitem>
-                        <listitem><para><emphasis><filename>&dash;&dash;source</filename>:</emphasis>
+                            <filename>--source</filename>.</para></listitem>
+                        <listitem><para><emphasis><filename>--source</filename>:</emphasis>
                             This option is a
                             <filename>wic</filename>-specific option that
                             names the source of the data that populates
@@ -4310,7 +4532,7 @@
                             "<link linkend='openembedded-kickstart-plugins'>Plugins</link>"
                             section.</para>
                             <para>If you use
-                            <filename>&dash;&dash;source rootfs</filename>,
+                            <filename>--source rootfs</filename>,
                             <filename>wic</filename> creates a partition as
                             large as needed and to fill it with the contents of
 			                the root filesystem pointed to by the
@@ -4320,14 +4542,14 @@
 			                option.
                             The filesystem type used to create the
                             partition is driven by the value of the
-			                <filename>&dash;&dash;fstype</filename> option
+			                <filename>--fstype</filename> option
 			                specified for the partition.
                             See the entry on
-                            <filename>&dash;&dash;fstype</filename> that
+                            <filename>--fstype</filename> that
                             follows for more information.
 			                </para>
                             <para>If you use
-                            <filename>&dash;&dash;source &lt;plugin-name&gt;</filename>,
+                            <filename>--source <replaceable>plugin-name</replaceable></filename>,
                             <filename>wic</filename> creates a partition as
                             large as needed and fills it with the contents of
                             the partition that is generated by the
@@ -4340,10 +4562,10 @@
 			                filesystem type end up being are dependent
 			                on the given plugin implementation.
                             </para></listitem>
-                        <listitem><para><emphasis><filename>&dash;&dash;ondisk</filename> or <filename>&dash;&dash;ondrive</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--ondisk</filename> or <filename>--ondrive</filename>:</emphasis>
                             Forces the partition to be created on a particular
                             disk.</para></listitem>
-                        <listitem><para><emphasis><filename>&dash;&dash;fstype</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--fstype</filename>:</emphasis>
                             Sets the file system type for the partition.
                             Valid values are:
                             <itemizedlist>
@@ -4360,7 +4582,7 @@
                                 <listitem><para><filename>swap</filename>
                                 </para></listitem>
                             </itemizedlist></para></listitem>
-                        <listitem><para><emphasis><filename>&dash;&dash;fsoptions</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--fsoptions</filename>:</emphasis>
                             Specifies a free-form string of options to be
                             used when mounting the filesystem.
                             This string will be copied into the
@@ -4370,15 +4592,15 @@
                             If not specified, the default string
                             is "defaults".
                             </para></listitem>
-                        <listitem><para><emphasis><filename>&dash;&dash;label label</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--label label</filename>:</emphasis>
                             Specifies the label to give to the filesystem to
                             be made on the partition.
                             If the given label is already in use by another
                             filesystem, a new label is created for the
                             partition.</para></listitem>
-                        <listitem><para><emphasis><filename>&dash;&dash;active</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--active</filename>:</emphasis>
                             Marks the partition as active.</para></listitem>
-                        <listitem><para><emphasis><filename>&dash;&dash;align (in KBytes)</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--align (in KBytes)</filename>:</emphasis>
                             This option is a <filename>wic</filename>-specific
                             option that says to start a partition on an
                             x KBytes boundary.</para></listitem>
@@ -4395,17 +4617,17 @@
                     <note>
                         Bootloader functionality and boot partitions are
                         implemented by the various
-                        <filename>&dash;&dash;source</filename>
+                        <filename>--source</filename>
 			            plugins that implement bootloader functionality.
                         The bootloader command essentially provides a means of
                         modifying bootloader configuration.
                     </note>
                     <itemizedlist>
-                        <listitem><para><emphasis><filename>&dash;&dash;timeout</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--timeout</filename>:</emphasis>
                             Specifies the number of seconds before the
                             bootloader times out and boots the default option.
                             </para></listitem>
-                        <listitem><para><emphasis><filename>&dash;&dash;append</filename>:</emphasis>
+                        <listitem><para><emphasis><filename>--append</filename>:</emphasis>
                             Specifies kernel parameters.
                             These parameters will be added to the syslinux
                             <filename>APPEND</filename> or
@@ -4421,13 +4643,22 @@
         <title>Configuring the Kernel</title>
 
         <para>
-            Configuring the Yocto Project kernel consists of making sure the <filename>.config</filename>
-            file has all the right information in it for the image you are building.
-            You can use the <filename>menuconfig</filename> tool and configuration fragments to
-            make sure your <filename>.config</filename> file is just how you need it.
-            This section describes how to use <filename>menuconfig</filename>, create and use
-            configuration fragments, and how to interactively tweak your <filename>.config</filename>
-            file to create the leanest kernel configuration file possible.
+            Configuring the Yocto Project kernel consists of making sure the
+            <filename>.config</filename> file has all the right information
+            in it for the image you are building.
+            You can use the <filename>menuconfig</filename> tool and
+            configuration fragments to make sure your
+            <filename>.config</filename> file is just how you need it.
+            You can also save known configurations in a
+            <filename>defconfig</filename> file that the build system can use
+            for kernel configuration.
+        </para>
+
+        <para>
+            This section describes how to use <filename>menuconfig</filename>,
+            create and use configuration fragments, and how to interactively
+            modify your <filename>.config</filename> file to create the
+            leanest kernel configuration file possible.
         </para>
 
         <para>
@@ -4457,18 +4688,23 @@
                 <ulink url='&YOCTO_DOCS_REF_URL;#structure-memres-core-script'><filename>oe-init-build-env-memres</filename></ulink>
                 script found in the
                 <link linkend='build-directory'>Build Directory</link>.
-                The following commands run <filename>menuconfig</filename> assuming the
-                <link linkend='source-directory'>Source Directory</link>
-                top-level folder is <filename>~/poky</filename>:
+                You must also be sure of the state of your build in the
+                <link linkend='source-directory'>Source Directory</link>.
+                The following commands run <filename>menuconfig</filename>
+                assuming the Source Directory's top-level folder is
+                <filename>~/poky</filename>:
                 <literallayout class='monospaced'>
      $ cd poky
      $ source oe-init-build-env
+     $ bitbake linux-yocto -c kernel_configme -f
      $ bitbake linux-yocto -c menuconfig
                 </literallayout>
-                Once <filename>menuconfig</filename> comes up, its standard interface allows you to
-                interactively examine and configure all the kernel configuration parameters.
-                After making your changes, simply exit the tool and save your changes to
-                create an updated version of the <filename>.config</filename> configuration file.
+                Once <filename>menuconfig</filename> comes up, its standard
+                interface allows you to interactively examine and configure
+                all the kernel configuration parameters.
+                After making your changes, simply exit the tool and save your
+                changes to create an updated version of the
+                <filename>.config</filename> configuration file.
             </para>
 
             <para>
@@ -4549,6 +4785,70 @@
             </para>
         </section>
 
+        <section id='creating-a-defconfig-file'>
+            <title>Creating a&nbsp;&nbsp;<filename>defconfig</filename> File</title>
+
+            <para>
+                A <filename>defconfig</filename> file is simply a
+                <filename>.config</filename> renamed to "defconfig".
+                You can use a <filename>defconfig</filename> file
+                to retain a known set of kernel configurations from which the
+                OpenEmbedded build system can draw to create the final
+                <filename>.config</filename> file.
+                <note>
+                    Out-of-the-box, the Yocto Project never ships a
+                    <filename>defconfig</filename> or
+                    <filename>.config</filename> file.
+                    The OpenEmbedded build system creates the final
+                    <filename>.config</filename> file used to configure the
+                    kernel.
+                </note>
+            </para>
+
+            <para>
+                To create a <filename>defconfig</filename>, start with a
+                complete, working Linux kernel <filename>.config</filename>
+                file.
+                Copy that file to the appropriate
+                <filename>${</filename><ulink url='&YOCTO_DOCS_REF_URL;#var-PN'><filename>PN</filename></ulink><filename>}</filename>
+                directory in your layer's
+                <filename>recipes-kernel/linux</filename> directory, and rename
+                the copied file to "defconfig".
+                Then, add the following lines to the linux-yocto
+                <filename>.bbappend</filename> file in your layer:
+                <literallayout class='monospaced'>
+     FILESEXTRAPATHS_prepend := "${THISDIR}/${PN}:"
+     SRC_URI += "file://defconfig"
+                </literallayout>
+                The
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-SRC_URI'><filename>SRC_URI</filename></ulink>
+                tells the build system how to search for the file, while the
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-FILESEXTRAPATHS'><filename>FILESEXTRAPATHS</filename></ulink>
+                extends the
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-FILESPATH'><filename>FILESPATH</filename></ulink>
+                variable (search directories) to include the
+                <filename>${PN}</filename> directory you created to hold the
+                configuration changes.
+                <note>
+                    The build system applies the configurations from the
+                    <filename>defconfig</filename> file before applying any
+                    subsequent configuration fragments.
+                    The final kernel configuration is a combination of the
+                    configurations in the <filename>defconfig</filename>
+                    file and any configuration fragments you provide.
+                    You need to realize that if you have any configuration
+                    fragments, the build system applies these on top of and
+                    after applying the existing defconfig file configurations.
+                </note>
+                For more information on configuring the kernel, see the
+                "<ulink url='&YOCTO_DOCS_KERNEL_DEV_URL;#changing-the-configuration'>Changing the Configuration</ulink>"
+                and
+                "<ulink url='&YOCTO_DOCS_KERNEL_DEV_URL;#generating-configuration-files'>Generating Configuration Files</ulink>"
+                sections, both in the Yocto Project Linux Kernel Development
+                Manual.
+            </para>
+        </section>
+
         <section id='creating-config-fragments'>
             <title>Creating Configuration Fragments</title>
 
@@ -4557,8 +4857,10 @@
                 placed where the OpenEmbedded build system can find and apply them.
                 Syntactically, the configuration statement is identical to what would appear
                 in the <filename>.config</filename> file, which is in the
-                <link linkend='build-directory'>Build Directory</link> in
-                <filename>tmp/work/&lt;arch&gt;-poky-linux/linux-yocto-&lt;release-specific-string&gt;/linux-&lt;arch&gt;-&lt;build-type&gt;</filename>.
+                <link linkend='build-directory'>Build Directory</link>:
+                <literallayout class='monospaced'>
+     tmp/work/<replaceable>arch</replaceable>-poky-linux/linux-yocto-<replaceable>release_specific_string</replaceable>/linux-<replaceable>arch</replaceable>-<replaceable>build_type</replaceable>
+                </literallayout>
             </para>
 
             <para>
@@ -4570,23 +4872,27 @@
      $ echo "CONFIG_SMP=y" >> my_smp.cfg
                 </literallayout>
                 <note>
-                    All configuration files must use the <filename>.cfg</filename> extension in order
-                    for the OpenEmbedded build system to recognize them as a configuration fragment.
+                    All configuration fragment files must use the
+                    <filename>.cfg</filename> extension in order for the
+                    OpenEmbedded build system to recognize them as a
+                    configuration fragment.
                 </note>
             </para>
 
             <para>
-                Where do you put your configuration files?
-                You can place these configuration files in the same area pointed to by
+                Where do you put your configuration fragment files?
+                You can place these files in the same area pointed to by
                 <ulink url='&YOCTO_DOCS_REF_URL;#var-SRC_URI'><filename>SRC_URI</filename></ulink>.
-                The OpenEmbedded build system will pick up the configuration and add it to the
-                kernel's configuration.
-                For example, suppose you had a set of configuration options in a file called
-                <filename>myconfig.cfg</filename>.
-                If you put that file inside a directory named <filename>linux-yocto</filename>
-                that resides in the same directory as the kernel's append file and then add
-                a <filename>SRC_URI</filename> statement such as the following to the kernel's append file,
-                those configuration options will be picked up and applied when the kernel is built.
+                The OpenEmbedded build system picks up the configuration and
+                adds it to the kernel's configuration.
+                For example, suppose you had a set of configuration options
+                in a file called <filename>myconfig.cfg</filename>.
+                If you put that file inside a directory named
+                <filename>linux-yocto</filename> that resides in the same
+                directory as the kernel's append file and then add a
+                <filename>SRC_URI</filename> statement such as the following
+                to the kernel's append file, those configuration options
+                will be picked up and applied when the kernel is built.
                 <literallayout class='monospaced'>
      SRC_URI += "file://myconfig.cfg"
                 </literallayout>
@@ -4642,9 +4948,10 @@
 
             <para>
                 For each output warning, a message points to the file
-                that contains a list of the options and a pointer to the config
-                fragment that defines them.
-                Collectively, the files are the key to streamlining the configuration.
+                that contains a list of the options and a pointer to the
+                configuration fragment that defines them.
+                Collectively, the files are the key to streamlining the
+                configuration.
             </para>
 
             <para>
@@ -4733,9 +5040,6 @@
             Furthermore, the <link linkend='build-directory'>Build Directory</link> is
             <filename>build</filename> and is located in <filename>poky</filename> and
             the kernel is based on the Linux 3.4 kernel.
-            For general information on how to configure the most efficient build, see the
-            "<ulink url='&YOCTO_DOCS_QS_URL;#building-image'>Building an Image</ulink>" section
-            in the Yocto Project Quick Start.
         </para>
 
         <para>
@@ -4785,7 +5089,7 @@
                 <literallayout class='monospaced'>
      ${S}/linux
                 </literallayout>
-                See the "<link linkend='finding-the-temporary-source-code'>Finding the Temporary Source Code</link>"
+                See the "<link linkend='finding-the-temporary-source-code'>Finding Temporary Source Code</link>"
                 section and the
                 <ulink url='&YOCTO_DOCS_REF_URL;#var-S'><filename>S</filename></ulink> variable
                 for more information about where source is kept during a build.
@@ -4804,8 +5108,8 @@
 
             <para>
                 Two methods exist by which you can create the patch:
-                <link linkend='using-a-git-workflow'>Git workflow</link> and
-                <link linkend='using-a-quilt-workflow'>Quilt workflow</link>.
+                <link linkend='using-devtool-in-your-workflow'><filename>devtool</filename></link> and
+                <link linkend='using-a-quilt-workflow'>Quilt</link>.
                 For kernel patches, the Git workflow is more appropriate.
                 This section assumes the Git workflow and shows the steps specific to
                 this example.
@@ -4961,11 +5265,6 @@
        $HOME/poky/meta-yocto-bsp \
        $HOME/poky/meta-mylayer \
        "
-
-     BBLAYERS_NON_REMOVABLE ?= " \
-       $HOME/poky/meta \
-       $HOME/poky/meta-yocto \
-       "
                         </literallayout></para></listitem>
                 </itemizedlist>
             </para>
@@ -5067,8 +5366,7 @@
                     by Jake Edge
                     </para></listitem>
                 <listitem><para><emphasis>
-                    "<ulink url='https://www.nccgroup.com/media/18475/exploiting_security_gateways_via_their_web_interfaces.pdf'>They ought to know better: Exploiting Security
-Gateways via their Web Interfaces</ulink>"</emphasis>
+                    "<ulink url='https://www.nccgroup.com/media/18475/exploiting_security_gateways_via_their_web_interfaces.pdf'>They ought to know better: Exploiting Security Gateways via their Web Interfaces</ulink>"</emphasis>
                     by Ben Williams
                     </para></listitem>
             </itemizedlist>
@@ -5230,8 +5528,8 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                         </para>
                         <para>
                         To set up passwords, use the
-                        <filename>extrausers</filename> class, which is the
-                        preferred method.
+                        <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-extrausers'><filename>extrausers</filename></ulink>
+                        class, which is the preferred method.
                         For an example on how to set up both root and user
                         passwords, see the
                         "<ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-extrausers'><filename>extrausers.bbclass</filename></ulink>"
@@ -5252,8 +5550,11 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                         </para></listitem>
                     <listitem><para>
                         Consider enabling a Mandatory Access Control (MAC)
-                        framework (such as SMACK or SELinux) and tuning it
+                        framework such as SMACK or SELinux and tuning it
                         appropriately for your device's usage.
+                        You can find more information in the
+                        <ulink url='http://git.yoctoproject.org/cgit/cgit.cgi/meta-selinux/'><filename>meta-selinux</filename></ulink>
+                        layer.
                         </para></listitem>
                 </itemizedlist>
             </para>
@@ -5682,7 +5983,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                         section of the Yocto Project Linux Kernel Development
                         Manual and the "<link linkend='creating-config-fragments'>Creating Configuration Fragments</link>"
                         section, which is in this manual.</para></listitem>
-                    <listitem><para><filename>bitbake -u depexp -g &lt;bitbake_target&gt;</filename>:
+                    <listitem><para><filename>bitbake -u depexp -g <replaceable>bitbake_target</replaceable></filename>:
                         Using the BitBake command with these options brings up
                         a Dependency Explorer from which you can view file
                         dependencies.
@@ -5701,7 +6002,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 libraries, and applications.
                 To change things, you can configure how the packaging happens,
                 which changes the way you build them.
-                You can also tweak the filesystem itself or select a different
+                You can also modify the filesystem itself or select a different
                 filesystem.
             </para>
 
@@ -5709,7 +6010,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 First, find out what is hogging your root filesystem by running the
                 <filename>dirsize.py</filename> script from your root directory:
                 <literallayout class='monospaced'>
-     $ cd &lt;root-directory-of-image&gt;
+     $ cd <replaceable>root-directory-of-image</replaceable>
      $ dirsize.py 100000 > dirsize-100k.log
      $ cat dirsize-100k.log
                 </literallayout>
@@ -5729,8 +6030,8 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 One way to see how packages relate to each other is by using
                 the Dependency Explorer UI with the BitBake command:
                 <literallayout class='monospaced'>
-     $ cd &lt;image-directory&gt;
-     $ bitbake -u depexp -g &lt;image&gt;
+     $ cd <replaceable>image-directory</replaceable>
+     $ bitbake -u depexp -g <replaceable>image</replaceable>
                 </literallayout>
                 Use the interface to select potential packages you wish to
                 eliminate and see their dependency relationships.
@@ -5797,7 +6098,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 Linux build directory to get an idea of what is making up
                 the kernel:
                 <literallayout class='monospaced'>
-     $ cd &lt;top-level-linux-build-directory&gt;
+     $ cd <replaceable>top-level-linux-build-directory</replaceable>
      $ ksize.py > ksize.log
      $ cat ksize.log
                 </literallayout>
@@ -5886,10 +6187,10 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 described here combined with experimentation and iteration.
                 Here are a couple of areas to experiment with:
                 <itemizedlist>
-                    <listitem><para><filename>eglibc</filename>:
+                    <listitem><para><filename>glibc</filename>:
                         In general, follow this process:
                         <orderedlist>
-                            <listitem><para>Remove <filename>eglibc</filename>
+                            <listitem><para>Remove <filename>glibc</filename>
                                 features from
                                 <ulink url='&YOCTO_DOCS_REF_URL;#var-DISTRO_FEATURES'><filename>DISTRO_FEATURES</filename></ulink>
                                 that you think you do not need.</para></listitem>
@@ -5903,7 +6204,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                                 support wide character support as is done for
                                 <filename>ncurses</filename>.
                                 Or, if support for those characters is needed,
-                                determine what <filename>eglibc</filename>
+                                determine what <filename>glibc</filename>
                                 features provide the support and restore the
                                 configuration.
                                 </para></listitem>
@@ -5912,7 +6213,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                         </orderedlist></para></listitem>
                     <listitem><para><filename>busybox</filename>:
                         For BusyBox, use a process similar as described for
-                        <filename>eglibc</filename>.
+                        <filename>glibc</filename>.
                         A difference is you will need to boot the resulting
                         system to see if you are able to do everything you
                         expect from the running system.
@@ -5948,6 +6249,192 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
         </section>
     </section>
 
+    <section id='building-images-for-more-than-one-machine'>
+        <title>Building Images for More than One Machine</title>
+
+        <para>
+            A common scenario developers face is creating images for several
+            different machines that use the same software environment.
+            In this situation, it is tempting to set the
+            tunings and optimization flags for each build specifically for
+            the targeted hardware (i.e. "maxing out" the tunings).
+            Doing so can considerably add to build times and package feed
+            maintenance collectively for the machines.
+            For example, selecting tunes that are extremely specific to a
+            CPU core used in a system might enable some micro optimizations
+            in GCC for that particular system but would otherwise not gain
+            you much of a performance difference across the other systems
+            as compared to using a more general tuning across all the builds
+            (e.g. setting
+            <ulink url='var-DEFAULTTUNE'><filename>DEFAULTTUNE</filename></ulink>
+            specifically for each machine's build).
+            Rather than "max out" each build's tunings, you can take steps that
+            cause the OpenEmbedded build system to reuse software across the
+            various machines where it makes sense.
+        </para>
+        <para>
+            If build speed and package feed maintenance are considerations,
+            you should consider the points in this section that can help you
+            optimize your tunings to best consider build times and package
+            feed maintenance.
+            <itemizedlist>
+                <listitem><para><emphasis>Share the Build Directory:</emphasis>
+                    If at all possible, share the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-TMPDIR'><filename>TMPDIR</filename></ulink>
+                    across builds.
+                    The Yocto Project supports switching between different
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>
+                    values in the same <filename>TMPDIR</filename>.
+                    This practice is well supported and regularly used by
+                    developers when building for multiple machines.
+                    When you use the same <filename>TMPDIR</filename> for
+                    multiple machine builds, the OpenEmbedded build system can
+                    reuse the existing native and often cross-recipes for
+                    multiple machines.
+                    Thus, build time decreases.
+                    <note>
+                        If
+                        <ulink url='&YOCTO_DOCS_REF_URL;#var-DISTRO'><filename>DISTRO</filename></ulink>
+                        settings change or fundamental configuration settings
+                        such as the filesystem layout, you need to work with
+                        a clean <filename>TMPDIR</filename>.
+                        Sharing <filename>TMPDIR</filename> under these
+                        circumstances might work but since it is not
+                        guaranteed, you should use a clean
+                        <filename>TMPDIR</filename>.
+                    </note>
+                    </para></listitem>
+                <listitem><para><emphasis>Enable the Appropriate Package Architecture:</emphasis>
+                    By default, the OpenEmbedded build system enables three
+                    levels of package architectures: "all", "tune" or "package",
+                    and "machine".
+                    Any given recipe usually selects one of these package
+                    architectures (types) for its output.
+                    Depending for what a given recipe creates packages, making
+                    sure you enable the appropriate package architecture can
+                    directly impact the build time.</para>
+                    <para>A recipe that just generates scripts can enable
+                    "all" architecture because there are no binaries to build.
+                    To specifically enable "all" architecture, be sure your
+                    recipe inherits the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-allarch'><filename>allarch</filename></ulink>
+                    class.
+                    This class is useful for "all" architectures because it
+                    configures many variables so packages can be used across
+                    multiple architectures.</para>
+                    <para>If your recipe needs to generate packages that are
+                    machine-specific or when one of the build or runtime
+                    dependencies is already machine-architecture dependent,
+                    which makes your recipe also machine-architecture dependent,
+                    make sure your recipe enables the "machine" package
+                    architecture through the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE_ARCH'><filename>MACHINE_ARCH</filename></ulink>
+                    variable:
+                    <literallayout class='monospaced'>
+     PACKAGE_ARCH = "${MACHINE_ARCH}"
+                    </literallayout>
+                    When you do not specifically enable a package
+                    architecture through the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-PACKAGE_ARCH'><filename>PACKAGE_ARCH</filename></ulink>,
+                    The OpenEmbedded build system defaults to the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-TUNE_PKGARCH'><filename>TUNE_PKGARCH</filename></ulink>
+                    setting:
+                    <literallayout class='monospaced'>
+     PACKAGE_ARCH = "${TUNE_PKGARCH}"
+                    </literallayout>
+                    </para></listitem>
+                <listitem><para><emphasis>Choose a Generic Tuning File if Possible:</emphasis>
+                    Some tunes are more generic and can run on multiple targets
+                    (e.g. an <filename>armv5</filename> set of packages could
+                    run on <filename>armv6</filename> and
+                    <filename>armv7</filename> processors in most cases).
+                    Similarly, <filename>i486</filename> binaries could work
+                    on <filename>i586</filename> and higher processors.
+                    You should realize, however, that advances on newer
+                    processor versions would not be used.</para>
+                    <para>If you select the same tune for several different
+                    machines, the OpenEmbedded build system reuses software
+                    previously built, thus speeding up the overall build time.
+                    Realize that even though a new sysroot for each machine is
+                    generated, the software is not recompiled and only one
+                    package feed exists.
+                    </para></listitem>
+                <listitem><para><emphasis>Manage Granular Level Packaging:</emphasis>
+                    Sometimes cases exist where injecting another level
+                    of package architecture beyond the three higher levels
+                    noted earlier can be useful.
+                    For example, consider the <filename>emgd</filename>
+                    graphics stack in the
+                    <filename>meta-intel</filename> layer.
+                    In this layer, a subset of software exists that is
+                    compiled against something different from the rest of the
+                    generic packages.
+                    You can examine the key code in the
+                    <ulink url='http://git.yoctoproject.org/cgit/cgit.cgi'>Source Repositories</ulink>
+                    "daisy" branch in
+                    <filename>classes/emgd-gl.bbclass</filename>.
+                    For a specific set of packages, the code redefines
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-PACKAGE_ARCH'><filename>PACKAGE_ARCH</filename></ulink>.
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-PACKAGE_EXTRA_ARCHS'><filename>PACKAGE_EXTRA_ARCHS</filename></ulink>
+                    is then appended with this extra tune name in
+                    <filename>meta-intel-emgd.inc</filename>.
+                    The result is that when searching for packages, the
+                    build system uses a four-level search and the packages
+                    in this new level are preferred as compared to the standard
+                    tune.
+                    The overall result is that the build system reuses most
+                    software from the common tune except for specific cases
+                    as needed.
+                    </para></listitem>
+                <listitem><para><emphasis>Use Tools to Debug Issues:</emphasis>
+                    Sometimes you can run into situations where software is
+                    being rebuilt when you think it should not be.
+                    For example, the OpenEmbedded build system might not be
+                    using shared state between machines when you think it
+                    should be.
+                    These types of situations are usually due to references
+                    to machine-specific variables such as
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE'><filename>MACHINE</filename></ulink>,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-SERIAL_CONSOLE'><filename>SERIAL_CONSOLE</filename></ulink>,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-XSERVER'><filename>XSERVER</filename></ulink>,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-MACHINE_FEATURES'><filename>MACHINE_FEATURES</filename></ulink>,
+                    and so forth in code that is supposed to only be
+                    tune-specific or when the recipe depends
+                    (<ulink url='&YOCTO_DOCS_REF_URL;#var-DEPENDS'><filename>DEPENDS</filename></ulink>,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-RDEPENDS'><filename>RDEPENDS</filename></ulink>,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-RRECOMMENDS'><filename>RRECOMMENDS</filename></ulink>,
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-RSUGGESTS'><filename>RSUGGESTS</filename></ulink>,
+                    and so forth) on some other recipe that already has
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-PACKAGE_ARCH'><filename>PACKAGE_ARCH</filename></ulink>
+                    defined as "${MACHINE_ARCH}".
+                    <note>
+                        Patches to fix any issues identified are most welcome
+                        as these issues occasionally do occur.
+                    </note></para>
+                    <para>For such cases, you can use some tools to help you
+                    sort out the situation:
+                    <itemizedlist>
+                        <listitem><para><emphasis><filename>sstate-diff-machines.sh</filename>:</emphasis>
+                            You can find this tool in the
+                            <filename>scripts</filename> directory of the
+                            Source Repositories.
+                            See the comments in the script for information on
+                            how to use the tool.
+                            </para></listitem>
+                        <listitem><para><emphasis>BitBake's "-S printdiff" Option:</emphasis>
+                            Using this option causes BitBake to try to
+                            establish the closest signature match it can
+                            (e.g. in the shared state cache) and then run
+                            <filename>bitbake-diffsigs</filename> over the
+                            matches to determine the stamps and delta where
+                            these two stamp trees diverge.
+                            </para></listitem>
+                    </itemizedlist>
+                    </para></listitem>
+            </itemizedlist>
+        </para>
+    </section>
+
     <section id='working-with-packages'>
         <title>Working with Packages</title>
 
@@ -5959,9 +6446,6 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     </para></listitem>
                 <listitem><para>
                     <link linkend='incrementing-a-package-revision-number'>Incrementing a package revision number</link>
-                    </para></listitem>
-                <listitem><para>
-                    <link linkend='usingpoky-configuring-DISTRO_PN_ALIAS'>Handling a package name alias</link>
                     </para></listitem>
                 <listitem><para>
                     <link linkend='handling-optional-module-packaging'>Handling optional module packaging</link>
@@ -6148,7 +6632,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     For this scenario, you need to start the PR Service using
                     the <filename>bitbake-prserv</filename> command:
                     <literallayout class='monospaced'>
-     bitbake-prserv &dash;&dash;host &lt;ip&gt; &dash;&dash;port &lt;port&gt; &dash;&dash;start
+     bitbake-prserv --host <replaceable>ip</replaceable> --port <replaceable>port</replaceable> --start
                     </literallayout>
                     In addition to hand-starting the service, you need to
                     update the <filename>local.conf</filename> file of each
@@ -6247,53 +6731,6 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     These guidelines define how versions are compared and what "increasing" a version means.
                 </para>
             </section>
-        </section>
-
-        <section id="usingpoky-configuring-DISTRO_PN_ALIAS">
-            <title>Handling a Package Name Alias</title>
-            <para>
-                Sometimes a package name you are using might exist under
-                an alias or as a similarly named package in a different
-                distribution.
-                The OpenEmbedded build system implements a
-                <filename>do_distro_check</filename>
-                task that automatically connects to major distributions
-                and checks for these situations.
-                If the package exists under a different name in a different
-                distribution, you get a <filename>distro_check</filename>
-                mismatch.
-                You can resolve this problem by defining a per-distro recipe
-                name alias using the
-                <filename><ulink url='&YOCTO_DOCS_REF_URL;#var-DISTRO_PN_ALIAS'>DISTRO_PN_ALIAS</ulink></filename>
-                variable.
-            </para>
-
-            <para>
-                Following is an example that shows how you specify the <filename>DISTRO_PN_ALIAS</filename>
-                variable:
-                <literallayout class='monospaced'>
-     DISTRO_PN_ALIAS_pn-PACKAGENAME = "distro1=package_name_alias1 \
-                                       distro2=package_name_alias2 \
-                                       distro3=package_name_alias3 \
-                                       ..."
-                </literallayout>
-            </para>
-
-            <para>
-                If you have more than one distribution alias, separate them with a space.
-                Note that the build system currently automatically checks the
-                Fedora, OpenSUSE, Debian, Ubuntu,
-                and Mandriva distributions for source package recipes without having to specify them
-                using the <filename>DISTRO_PN_ALIAS</filename> variable.
-                For example, the following command generates a report that lists the Linux distributions
-                that include the sources for each of the recipes.
-                <literallayout class='monospaced'>
-     $ bitbake world -f -c distro_check
-                </literallayout>
-                The results are stored in the <filename>build/tmp/log/distro_check-${DATETIME}.results</filename>
-                file found in the
-                <link linkend='source-directory'>Source Directory</link>.
-            </para>
         </section>
 
         <section id='handling-optional-module-packaging'>
@@ -6667,7 +7104,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     Realize that it is not sufficient to simply do the
                     following:
                     <literallayout class='monospaced'>
-    $ bitbake &lt;some-package&gt; package-index
+    $ bitbake <replaceable>some-package</replaceable> package-index
                     </literallayout>
                     This is because BitBake does not properly schedule the
                     <filename>package-index</filename> target fully after any
@@ -6687,7 +7124,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
 
                 <para>
                     When your build is complete, your packages reside in the
-                    <filename>${TMPDIR}/deploy/&lt;package-format&gt;</filename>
+                    <filename>${TMPDIR}/deploy/<replaceable>package-format</replaceable></filename>
                     directory.
                     For example, if <filename>${TMPDIR}</filename>
                     is <filename>tmp</filename> and your selected package type
@@ -6785,7 +7222,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     <para>
                         If you are using lighttpd, all you need
                         to do is to provide a link from your
-                        <filename>${TMPDIR}/deploy/&lt;package-format&gt;</filename>
+                        <filename>${TMPDIR}/deploy/<replaceable>package-format</replaceable></filename>
                         directory to lighttpd's document-root.
                         You can determine the specifics of your lighttpd
                         installation by looking through its configuration file,
@@ -6847,9 +7284,9 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                         Given this example, issue the following commands on the
                         target:
                         <literallayout class='monospaced'>
-     # smart channel &dash;&dash;add all type=rpm-md baseurl=http://server.name/rpm/all
-     # smart channel &dash;&dash;add i585 type=rpm-md baseurl=http://server.name/rpm/i586
-     # smart channel &dash;&dash;add qemux86 type=rpm-md baseurl=http://server.name/rpm/qemux86
+     # smart channel --add all type=rpm-md baseurl=http://server.name/rpm/all
+     # smart channel --add i585 type=rpm-md baseurl=http://server.name/rpm/i586
+     # smart channel --add qemux86 type=rpm-md baseurl=http://server.name/rpm/qemux86
                         </literallayout>
                         Also from the target machine, fetch the repository
                         information using this command:
@@ -6936,7 +7373,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 a shell script (<filename>run-ptest</filename>) that starts
                 the test.
                 The shell script that starts the test must not contain
-                the actual test, the script only starts it.
+                the actual test - the script only starts the test.
                 On the other hand, the test can be anything from a simple
                 shell script that runs a binary and checks the output to
                 an elaborate system of test binaries and data files.
@@ -6946,18 +7383,24 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 The test generates output in the format used by
                 Automake:
                 <literallayout class='monospaced'>
-     &lt;result&gt;: &lt;testname&gt;
+     <replaceable>result</replaceable>: <replaceable>testname</replaceable>
                 </literallayout>
                 where the result can be <filename>PASS</filename>,
                 <filename>FAIL</filename>, or <filename>SKIP</filename>,
                 and the testname can be any identifying string.
             </para>
 
-            <note>
-                A recipe is "ptest-enabled" if it inherits the
-                <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-ptest'><filename>ptest</filename></ulink>
-                class.
-            </note>
+            <para>
+                For a list of Yocto Project recipes that are already
+                enabled with ptest, see the
+                <ulink url='https://wiki.yoctoproject.org/wiki/Ptest'>Ptest</ulink>
+                wiki page.
+                <note>
+                    A recipe is "ptest-enabled" if it inherits the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-ptest'><filename>ptest</filename></ulink>
+                    class.
+                </note>
+            </para>
 
             <section id='adding-ptest-to-your-build'>
                 <title>Adding ptest to Your Build</title>
@@ -6974,10 +7417,11 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
      EXTRA_IMAGE_FEATURES += "ptest-pkgs"
                     </literallayout>
                     Once your build is complete, the ptest files are installed
-                    into the <filename>/usr/lib/&lt;package&gt;/ptest</filename>
+                    into the
+                    <filename>/usr/lib/<replaceable>package</replaceable>/ptest</filename>
                     directory within the image, where
-                    <filename>&lt;package&gt;</filename> is the name of the
-                    package.
+                    <filename><replaceable>package</replaceable></filename>
+                    is the name of the package.
                 </para>
             </section>
 
@@ -7062,7 +7506,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                             Consequently, packages that use the unaltered,
                             patched version of <filename>make check</filename>
                             automatically cross-compiles.</para>
-                            <para>However, you still must add a
+                            <para>Regardless, you still must add a
                             <filename>do_compile_ptest</filename> function to
                             build the test suite.
                             Add a function similar to the following to your
@@ -7185,7 +7629,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 Use the following BitBake command form to fetch all the
                 necessary sources without starting the build:
                 <literallayout class='monospaced'>
-     $ bitbake -c fetchall &lt;target&gt;
+     $ bitbake -c fetchall <replaceable>target</replaceable>
                 </literallayout>
                 This variation of the BitBake command guarantees that you
                 have all the sources for that BitBake target should you
@@ -7200,8 +7644,8 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
 
         <para>
             By default, the OpenEmbedded build system uses the
-            <link linkend='build-directory'>Build Directory</link> to
-            build source code.
+            <link linkend='build-directory'>Build Directory</link> when
+            building source code.
             The build process involves fetching the source files, unpacking
             them, and then patching them if necessary before the build takes
             place.
@@ -7235,8 +7679,24 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             <filename>local.conf</filename> file:
             <literallayout class='monospaced'>
      INHERIT += "externalsrc"
-     EXTERNALSRC_pn-myrecipe = "/some/path/to/your/source/tree"
+     EXTERNALSRC_pn-<replaceable>myrecipe</replaceable> = "<replaceable>path-to-your-source-tree</replaceable>"
             </literallayout>
+        </para>
+
+        <para>
+            This next example shows how to accomplish the same thing by setting
+            <filename>EXTERNALSRC</filename> in the recipe itself or in the
+            recipe's append file:
+            <literallayout class='monospaced'>
+     EXTERNALSRC = "<replaceable>path</replaceable>"
+     EXTERNALSRC_BUILD = "<replaceable>path</replaceable>"
+            </literallayout>
+            <note>
+                In order for these settings to take effect, you must globally
+                or locally inherit the
+                <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-externalsrc'><filename>externalsrc</filename></ulink>
+                class.
+            </note>
         </para>
 
         <para>
@@ -7249,7 +7709,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             <ulink url='&YOCTO_DOCS_REF_URL;#var-EXTERNALSRC_BUILD'><filename>EXTERNALSRC_BUILD</filename></ulink>
             to point to that directory:
             <literallayout class='monospaced'>
-     EXTERNALSRC_BUILD_pn-myrecipe = "/path/to/my/source/tree"
+     EXTERNALSRC_BUILD_pn-<replaceable>myrecipe</replaceable> = "<replaceable>path-to-your-source-tree</replaceable>"
             </literallayout>
         </para>
     </section>
@@ -7310,7 +7770,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             <title>Using systemd for the Main Image and Using SysVinit for the Rescue Image</title>
 
             <para>
-                Set the these variables in your distribution configuration
+                Set these variables in your distribution configuration
                 file as follows:
                 <literallayout class='monospaced'>
      DISTRO_FEATURES_append = " systemd"
@@ -7323,6 +7783,114 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 However, it can install SysVinit
                 and the appropriate packages will have support for both
                 systemd and SysVinit.
+            </para>
+        </section>
+    </section>
+
+    <section id="selecting-dev-manager">
+        <title>Selecting a Device Manager</title>
+
+        <para>
+            The Yocto Project provides multiple ways to manage the device
+            manager (<filename>/dev</filename>):
+            <itemizedlist>
+                <listitem><para><emphasis>Persistent and Pre-Populated<filename>/dev</filename>:</emphasis>
+                    For this case, the <filename>/dev</filename> directory
+                    is persistent and the required device nodes are created
+                    during the build.
+                    </para></listitem>
+                <listitem><para><emphasis>Use <filename>devtmpfs</filename> with a Device Manager:</emphasis>
+                    For this case, the <filename>/dev</filename> directory
+                    is provided by the kernel as an in-memory file system and
+                    is automatically populated by the kernel at runtime.
+                    Additional configuration of device nodes is done in user
+                    space by a device manager like
+                    <filename>udev</filename> or
+                    <filename>busybox-mdev</filename>.
+                    </para></listitem>
+            </itemizedlist>
+        </para>
+
+        <section id="static-dev-management">
+            <title>Using Persistent and Pre-Populated<filename>/dev</filename></title>
+
+            <para>
+                To use the static method for device population, you need to
+                set the
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-USE_DEVFS'><filename>USE_DEVFS</filename></ulink>
+                variable to "0" as follows:
+                <literallayout class='monospaced'>
+     USE_DEVFS = "0"
+                </literallayout>
+            </para>
+
+            <para>
+                The content of the resulting <filename>/dev</filename>
+                directory is defined in a Device Table file.
+                The
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-IMAGE_DEVICE_TABLES'><filename>IMAGE_DEVICE_TABLES</filename></ulink>
+                variable defines the Device Table to use and should be set
+                in the machine or distro configuration file.
+                Alternatively, you can set this variable in your
+                <filename>local.conf</filename> configuration file.
+            </para>
+
+            <para>
+                If you do not define the
+                <filename>IMAGE_DEVICE_TABLES</filename> variable, the default
+                <filename>device_table-minimal.txt</filename> is used:
+                <literallayout class='monospaced'>
+     IMAGE_DEVICE_TABLES = "device_table-mymachine.txt"
+                </literallayout>
+            </para>
+
+            <para>
+                The population is handled by the <filename>makedevs</filename>
+                utility during image creation:
+            </para>
+        </section>
+
+        <section id="devtmpfs-dev-management">
+            <title>Using <filename>devtmpfs</filename> and a Device Manager</title>
+
+            <para>
+                To use the dynamic method for device population, you need to
+                use (or be sure to set) the
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-USE_DEVFS'><filename>USE_DEVFS</filename></ulink>
+                variable to "1", which is the default:
+                <literallayout class='monospaced'>
+     USE_DEVFS = "1"
+                </literallayout>
+                With this setting, the resulting <filename>/dev</filename>
+                directory is populated by the kernel using
+                <filename>devtmpfs</filename>.
+                Make sure the corresponding kernel configuration variable
+                <filename>CONFIG_DEVTMPFS</filename> is set when building
+                you build a Linux kernel.
+            </para>
+
+            <para>
+                All devices created by <filename>devtmpfs</filename> will be
+                owned by <filename>root</filename> and have permissions
+                <filename>0600</filename>.
+            </para>
+
+            <para>
+                To have more control over the device nodes, you can use a
+                device manager like <filename>udev</filename> or
+                <filename>busybox-mdev</filename>.
+                You choose the device manager by defining the
+                <filename>VIRTUAL-RUNTIME_dev_manager</filename> variable
+                in your machine or distro configuration file.
+                Alternatively, you can set this variable in your
+                <filename>local.conf</filename> configuration file:
+                <literallayout class='monospaced'>
+     VIRTUAL-RUNTIME_dev_manager = "udev"
+
+     # Some alternative values
+     # VIRTUAL-RUNTIME_dev_manager = "busybox-mdev"
+     # VIRTUAL-RUNTIME_dev_manager = "systemd"
+                </literallayout>
             </para>
         </section>
     </section>
@@ -7349,12 +7917,12 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             <ulink url='&YOCTO_DOCS_REF_URL;#var-SRCPV'><filename>SRCPV</filename></ulink>.
             Here is an example:
             <literallayout class='monospaced'>
-     PV = "1.2.3+git${SRCPV}
+     PV = "1.2.3+git${SRCPV}"
             </literallayout>
             Then, you can add the following to your
             <filename>local.conf</filename>:
             <literallayout class='monospaced'>
-     SRCREV_pn-&lt;PN&gt; = "${AUTOREV}"
+     SRCREV_pn-<replaceable>PN</replaceable> = "${AUTOREV}"
             </literallayout>
             <ulink url='&YOCTO_DOCS_REF_URL;#var-PN'><filename>PN</filename></ulink>
             is the name of the recipe for which you want to enable automatic source
@@ -7559,8 +8127,8 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             <title>Enabling Tests</title>
 
             <para>
-                Depending on whether you are planning on running tests using
-                QEMU or on running them on the hardware, you have to take
+                Depending on whether you are planning to run tests using
+                QEMU or on the hardware, you have to take
                 different steps to enable the tests.
                 See the following subsections for information on how to
                 enable both types of tests.
@@ -7580,7 +8148,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                                 <listitem><para>Add
                                     <filename>NOPASSWD</filename> for your user
                                     in <filename>/etc/sudoers</filename> either for
-                                    ALL commands or just for
+                                    all commands or just for
                                     <filename>runqemu-ifup</filename>.
                                     You must provide the full path as that can
                                     change if you are using multiple clones of the
@@ -7617,12 +8185,35 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                             must accept incoming connections from 192.168.7.0/24,
                             which is the default IP range used for tap devices
                             by <filename>runqemu</filename>.</para></listitem>
+                        <listitem><para><emphasis>Be sure your host has the
+                            correct packages installed:</emphasis>
+                            Depending your host's distribution, you need
+                            to have the following packages installed:
+                            <itemizedlist>
+                                <listitem><para>Ubuntu and Debian:
+                                    <filename>sysstat</filename> and
+                                    <filename>iproute2</filename>
+                                    </para></listitem>
+                                <listitem><para>OpenSUSE:
+                                    <filename>sysstat</filename> and
+                                    <filename>iproute2</filename>
+                                    </para></listitem>
+                                <listitem><para>Fedora:
+                                    <filename>sysstat</filename> and
+                                    <filename>iproute</filename>
+                                    </para></listitem>
+                                <listitem><para>CentOS:
+                                    <filename>sysstat</filename> and
+                                    <filename>iproute</filename>
+                                    </para></listitem>
+                            </itemizedlist>
+                        </para></listitem>
                     </itemizedlist>
                 </para>
 
                 <para>
                     Once you start running the tests, the following happens:
-                    <itemizedlist>
+                    <orderedlist>
                         <listitem><para>A copy of the root filesystem is written
                             to <filename>${WORKDIR}/testimage</filename>.
                             </para></listitem>
@@ -7652,7 +8243,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                             <filename>unittest</filename> in the task log at
                             <filename>${WORKDIR}/temp/log.do_testimage</filename>.
                             </para></listitem>
-                    </itemizedlist>
+                    </orderedlist>
                 </para>
             </section>
 
@@ -7700,8 +8291,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     <filename>TEST_TARGET</filename> to an appropriate value.
                     For QEMU, you do not have to change anything, the default
                     value is "QemuTarget".
-                    For running tests on hardware, two options exist:
-                    "SimpleRemoteTarget" and "GummibootTarget".
+                    For running tests on hardware, the following options exist:
                     <itemizedlist>
                         <listitem><para><emphasis>"SimpleRemoteTarget":</emphasis>
                             Choose "SimpleRemoteTarget" if you are going to
@@ -7727,6 +8317,45 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                             See the
                             "<link linkend='selecting-gummiboottarget'>Selecting GummibootTarget</link>"
                             section, which follows, for more information.
+                            </para></listitem>
+                        <listitem><para><emphasis>"BeagleBoneTarget":</emphasis>
+                            Choose "BeagleBoneTarget" if you are deploying
+                            images and running tests on the BeagleBone
+                            "Black" or original "White" hardware.
+                            For information on how to use these tests, see the
+                            comments at the top of the BeagleBoneTarget
+                            <filename>meta-yocto-bsp/lib/oeqa/controllers/beaglebonetarget.py</filename>
+                            file.
+                            </para></listitem>
+                        <listitem><para><emphasis>"EdgeRouterTarget":</emphasis>
+                            Choose "EdgeRouterTarget" is you are deploying
+                            images and running tests on the Ubiquiti Networks
+                            EdgeRouter Lite.
+                            For information on how to use these tests, see the
+                            comments at the top of the EdgeRouterTarget
+                            <filename>meta-yocto-bsp/lib/oeqa/controllers/edgeroutertarget.py</filename>
+                            file.
+                            </para></listitem>
+                        <listitem><para><emphasis>"GrubTarget":</emphasis>
+                            Choose the "supports deploying images and running
+                            tests on any generic PC that boots using GRUB.
+                            For information on how to use these tests, see the
+                            comments at the top of the GrubTarget
+                            <filename>meta-yocto-bsp/lib/oeqa/controllers/grubtarget.py</filename>
+                            file.
+                            </para></listitem>
+                        <listitem><para><emphasis>"<replaceable>your-target</replaceable>":</emphasis>
+                            Create your own custom target if you want to run
+                            tests when you are deploying images and running
+                            tests on a custom machine within your BSP layer.
+                            To do this, you need to add a Python unit that
+                            defines the target class under
+                            <filename>lib/oeqa/controllers/</filename> within
+                            your layer.
+                            You must also provide an empty
+                            <filename>__init__.py</filename>.
+                            For examples, see files in
+                            <filename>meta-yocto-bsp/lib/oeqa/controllers/</filename>.
                             </para></listitem>
                     </itemizedlist>
                 </para>
@@ -7779,7 +8408,8 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                                     <filename>kmod</filename>).
                                     </para></listitem>
                                 <listitem><para>Uses a custom
-                                    initramfs image with a custom installer.
+                                    Initial RAM Disk (initramfs) image with a
+                                    custom installer.
                                     A normal image that you can install usually
                                     creates a single rootfs partition.
                                     This image uses another installer that
@@ -7837,10 +8467,14 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                             </para></listitem>
                     </orderedlist>
                 </para>
+            </section>
+
+            <section id='power-control'>
+                <title>Power Control</title>
 
                 <para>
-                    Here is some additional information regarding running
-                    "GummibootTarget" as your test target:
+                    For most hardware targets other than SimpleRemoteTarget,
+                    you can control power:
                     <itemizedlist>
                         <listitem><para>
                             You can use
@@ -7859,7 +8493,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                             In this example, the expect script does the
                             following:
                             <literallayout class='monospaced'>
-     ssh test@10.11.12.1 "pyctl nuc1 &lt;arg&gt;"
+     ssh test@10.11.12.1 "pyctl nuc1 <replaceable>arg</replaceable>"
                             </literallayout>
                             It then runs a Python script that controls power
                             for a label called <filename>nuc1</filename>.
@@ -7885,6 +8519,63 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                             some manual interaction is okay from time to time.
                             </para></listitem>
                     </itemizedlist>
+                    If you have no hardware to automatically perform power
+                    control but still wish to experiment with automated
+                    hardware testing, you can use the dialog-power-control
+                    script that shows a dialog prompting you to perform the
+                    required power action.
+                    This script requires either KDialog or Zenity to be
+                    installed.
+                    To use this script, set the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-TEST_POWERCONTROL_CMD'><filename>TEST_POWERCONTROL_CMD</filename></ulink>
+                    variable as follows:
+                    <literallayout class='monospaced'>
+     TEST_POWERCONTROL_CMD = "${COREBASE}/scripts/contrib/dialog-power-control"
+                    </literallayout>
+                </para>
+            </section>
+
+            <section id='serial-console-connection'>
+                <title>Serial Console Connection</title>
+
+                <para>
+                    For test target classes requiring a serial console
+                    to interact with the bootloader (e.g. BeagleBoneTarget,
+                    EdgeRouterTarget, and GrubTarget), you need to
+                    specify a command to use to connect to the serial console
+                    of the target machine by using the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-TEST_SERIALCONTROL_CMD'><filename>TEST_SERIALCONTROL_CMD</filename></ulink>
+                    variable and optionally the
+                    <ulink url='&YOCTO_DOCS_REF_URL;#var-TEST_SERIALCONTROL_EXTRA_ARGS'><filename>TEST_SERIALCONTROL_EXTRA_ARGS</filename></ulink>
+                    variable.
+                </para>
+
+                <para>
+                    These cases could be a serial terminal program if the
+                    machine is connected to a local serial port, or a
+                    <filename>telnet</filename> or
+                    <filename>ssh</filename> command connecting to a remote
+                    console server.
+                    Regardless of the case, the command simply needs to
+                    connect to the serial console and forward that connection
+                    to standard input and output as any normal terminal
+                    program does.
+                    For example, to use the picocom terminal program on
+                    serial device <filename>/dev/ttyUSB0</filename>
+                    at 115200bps, you would set the variable as follows:
+                    <literallayout class='monospaced'>
+     TEST_SERIALCONTROL_CMD = "picocom /dev/ttyUSB0 -b 115200"
+                    </literallayout>
+                    For local devices where the serial port device disappears
+                    when the device reboots, an additional "serdevtry" wrapper
+                    script is provided.
+                    To use this wrapper, simply prefix the terminal command
+                    with
+                    <filename>${COREBASE}/scripts/contrib/serdevtry</filename>:
+                    <literallayout class='monospaced'>
+     TEST_SERIALCONTROL_CMD = "${COREBASE}/scripts/contrib/serdevtry picocom -b
+115200 /dev/ttyUSB0"
+                    </literallayout>
                 </para>
             </section>
         </section>
@@ -7914,7 +8605,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                         </literallayout></para></listitem>
                     <listitem><para><emphasis>Manually running tests:</emphasis>
                         To manually run the tests, first globally inherit the
-                        <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-testimage'><filename>testimage</filename></ulink>
+                        <ulink url='&YOCTO_DOCS_REF_URL;#ref-classes-testimage*'><filename>testimage</filename></ulink>
                         class by editing your <filename>local.conf</filename>
                         file:
                         <literallayout class='monospaced'>
@@ -7922,7 +8613,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                         </literallayout>
                         Next, use BitBake to run the tests:
                         <literallayout class='monospaced'>
-     bitbake -c testimage &lt;image&gt;
+     bitbake -c testimage <replaceable>image</replaceable>
                         </literallayout></para></listitem>
                 </itemizedlist>
             </para>
@@ -7944,7 +8635,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 <ulink url='&YOCTO_DOCS_REF_URL;#var-BBPATH'><filename>BBPATH</filename></ulink>
                 in the <filename>local.conf</filename> file as normal.
                 Be sure that tests reside in
-                <filename>&lt;layer&gt;/lib/oeqa/runtime</filename>.
+                <filename><replaceable>layer</replaceable>/lib/oeqa/runtime</filename>.
                 <note>
                     Be sure that module names do not collide with module names
                     used in the default set of test modules in
@@ -7990,7 +8681,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     <listitem><para>The default tests for the image are defined
                         as:
                         <literallayout class='monospaced'>
-     DEFAULT_TEST_SUITES_pn-&lt;image&gt; = "ping ssh df connman syslog xorg scp vnc date rpm smart dmesg"
+     DEFAULT_TEST_SUITES_pn-<replaceable>image</replaceable> = "ping ssh df connman syslog xorg scp vnc date rpm smart dmesg"
                         </literallayout></para></listitem>
                     <listitem><para>Add your own test to the list of the
                         by using the following:
@@ -8021,7 +8712,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             </para>
 
             <para>
-                If you image is already built, make sure the following are set
+                If your image is already built, make sure the following are set
                 in your <filename>local.conf</filename> file.
                 Be sure to provide the IP address you need:
                 <literallayout class='monospaced'>
@@ -8042,22 +8733,6 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             </para>
 
             <para>
-                The exported data (i.e. <filename>testdata.json</filename>)
-                contains paths to the Build Directory.
-                Thus, the contents of the directory can be moved
-                to another machine as long as you update some paths in the
-                JSON.
-                Usually you only care about the
-                ${DEPLOY_DIR}/rpm directory (assuming the RPM and Smart tests
-                are enabled).
-                Consequently, running the tests on other machine
-                means that you have to move the contents and call
-                <filename>runexported</filename> with "&dash;&dash;deploy-dir PATH:
-                ./runexported.py &dash;&dash;deploy-dir /new/path/on/this/machine testdata.json
-                runexported.py accepts other arguments as well, see &dash;&dash;help.
-            </para>
-
-            <para>
                 You can now run the tests outside of the build environment:
                 <literallayout class='monospaced'>
      $ cd tmp/testimage/core-image-sato
@@ -8071,6 +8746,27 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     <filename>runexported.py</filename>
                 </note>
             </para>
+
+            <para>
+                The exported data (i.e. <filename>testdata.json</filename>)
+                contains paths to the Build Directory.
+                Thus, the contents of the directory can be moved
+                to another machine as long as you update some paths in the
+                JSON.
+                Usually, you only care about the
+                <filename>${DEPLOY_DIR}/rpm</filename> directory
+                (assuming the RPM and Smart tests are enabled).
+                Consequently, running the tests on other machine
+                means that you have to move the contents and call
+                <filename>runexported.py</filename> with
+                "--deploy-dir <replaceable>path</replaceable>" as
+                follows:
+                <literallayout class='monospaced'>
+     ./runexported.py --deploy-dir /new/path/on/this/machine testdata.json
+                </literallayout>
+                <filename>runexported.py</filename> accepts other arguments
+                as well as described using <filename>--help</filename>.
+            </para>
         </section>
 
         <section id="qemu-image-writing-new-tests">
@@ -8081,14 +8777,24 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 proper place for the build system to find them.
                 New tests for additional functionality outside of the core
                 should be added to the layer that adds the functionality, in
-                <filename>&lt;layer&gt;/lib/oeqa/runtime</filename> (as
-                long as
+                <filename><replaceable>layer</replaceable>/lib/oeqa/runtime</filename>
+                (as long as
                 <ulink url='&YOCTO_DOCS_REF_URL;#var-BBPATH'><filename>BBPATH</filename></ulink>
                 is extended in the layer's
                 <filename>layer.conf</filename> file as normal).
-                Just remember that filenames need to map directly to test
-                (module) names and that you do not use module names that
-                collide with existing core tests.
+                Just remember the following:
+                <itemizedlist>
+                    <listitem><para>Filenames need to map directly to test
+                        (module) names.
+                        </para></listitem>
+                    <listitem><para>Do not use module names that
+                        collide with existing core tests.
+                        </para></listitem>
+                    <listitem><para>Minimally, an empty
+                        <filename>__init__.py</filename> file must exist
+                        in the runtime directory.
+                        </para></listitem>
+                </itemizedlist>
             </para>
 
             <para>
@@ -8151,7 +8857,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                             "ps" (busybox).
                             </para></listitem>
                         <listitem><para><emphasis><filename>tc</filename>:</emphasis>
-                            The called text context, which gives access to the
+                            The called test context, which gives access to the
                             following attributes:
                             <itemizedlist>
                                 <listitem><para><emphasis><filename>d</filename>:</emphasis>
@@ -8192,11 +8898,11 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                                             The command returns a tuple:
                                             (status, output), which are what
                                             their names imply - the return code
-                                            of 'cmd' and whatever output
+                                            of "cmd" and whatever output
                                             it produces.
                                             The optional timeout argument
                                             represents the number of seconds the
-                                            test should wait for 'cmd' to
+                                            test should wait for "cmd" to
                                             return.
                                             If the argument is "None", the
                                             test uses the default instance's
@@ -8250,7 +8956,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
         </para>
 
         <tip>
-            For best results, install DBG (<filename>-dbg</filename>) packages
+            For best results, install debug (<filename>-dbg</filename>) packages
             for the applications you are going to debug.
             Doing so makes extra debug symbols available that give you more
             meaningful output.
@@ -8280,12 +8986,21 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             as all the heavy debugging is done by the host GDB.
             Offloading these processes gives the Gdbserver running on the target a chance to remain
             small and fast.
+            <note>
+                By default, source files are part of the
+                <filename>*-dbg</filename> packages in order to enable GDB
+                to show source lines in its output.
+                You can save further space on the target by setting the
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-PACKAGE_DEBUG_SPLIT_STYLE'><filename>PACKAGE_DEBUG_SPLIT_STYLE</filename></ulink>
+                variable to "debug-without-src" so that these packages do not
+                include the source files.
+            </note>
         </para>
 
         <para>
             Because the host GDB is responsible for loading the debugging information and
-            for doing the necessary processing to make actual debugging happen, the
-            user has to make sure the host can access the unstripped binaries complete
+            for doing the necessary processing to make actual debugging happen,
+            you have to make sure the host can access the unstripped binaries complete
             with their debugging information and also be sure the target is compiled with no optimizations.
             The host GDB must also have local access to all the libraries used by the
             debugged program.
@@ -8333,7 +9048,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             </para>
 
             <para>
-                Here is an example that when entered from the host
+                Here is an example, that when entered from the host,
                 connects to the target and launches Gdbserver in order to
                 "debug" a binary named <filename>helloworld</filename>:
                 <literallayout class='monospaced'>
@@ -8384,7 +9099,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     </literallayout>
                     Once the binary is built, you can find it here:
                     <literallayout class='monospaced'>
-     tmp/sysroots/&lt;host-arch&gt;/usr/bin/&lt;target-platform&gt;/&lt;target-abi&gt;-gdb
+     tmp/sysroots/<replaceable>host-arch</replaceable>/usr/bin/<replaceable>target-platform</replaceable>/<replaceable>target-abi</replaceable>-gdb
                     </literallayout>
                 </para>
             </section>
@@ -8500,6 +9215,14 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             you debug and fix them.
             This section presents a real-world example of an error encountered
             on the Yocto Project autobuilder and the process used to fix it.
+            <note>
+                If you cannot properly fix a <filename>make</filename> race
+                condition, you can work around it by clearing either the
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-PARALLEL_MAKE'><filename>PARALLEL_MAKE</filename></ulink>
+                or
+                <ulink url='&YOCTO_DOCS_REF_URL;#var-PARALLEL_MAKEINST'><filename>PARALLEL_MAKEINST</filename></ulink>
+                variables.
+            </note>
         </para>
 
         <section id='the-failure'>
@@ -8520,7 +9243,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
      | DEBUG: SITE files ['endian-little', 'bit-32', 'ix86-common', 'common-linux', 'common-glibc', 'i586-linux', 'common']
      | DEBUG: Executing shell function do_compile
      | NOTE: make -j 16
-     | make &dash;&dash;no-print-directory all-am
+     | make --no-print-directory all-am
      | /bin/mkdir -p include/near
      | /bin/mkdir -p include/near
      | /bin/mkdir -p include/near
@@ -8561,7 +9284,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
      | ln -s /home/pokybuild/yocto-autobuilder/yocto-slave/nightly-x86/build/build/tmp/work/i586-poky-linux/neard/
        0.14-r0/neard-0.14/include/dbus.h include/near/dbus.h
      | ./src/genbuiltin nfctype1 nfctype2 nfctype3 nfctype4 p2p > src/builtin.h
-     | i586-poky-linux-gcc  -m32 -march=i586 &dash;&dash;sysroot=/home/pokybuild/yocto-autobuilder/yocto-slave/nightly-x86/
+     | i586-poky-linux-gcc  -m32 -march=i586 --sysroot=/home/pokybuild/yocto-autobuilder/yocto-slave/nightly-x86/
        build/build/tmp/sysroots/qemux86 -DHAVE_CONFIG_H -I. -I./include -I./src -I./gdbus  -I/home/pokybuild/
        yocto-autobuilder/yocto-slave/nightly-x86/build/build/tmp/sysroots/qemux86/usr/include/glib-2.0
        -I/home/pokybuild/yocto-autobuilder/yocto-slave/nightly-x86/build/build/tmp/sysroots/qemux86/usr/
@@ -8636,7 +9359,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 Here is some abbreviated, sample output with the
                 missing dependency clearly visible at the end:
                 <literallayout class='monospaced'>
-     i586-poky-linux-gcc  -m32 -march=i586 &dash;&dash;sysroot=/home/scott-lenovo/......
+     i586-poky-linux-gcc  -m32 -march=i586 --sysroot=/home/scott-lenovo/......
         .
         .
         .
@@ -8668,7 +9391,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
      File Makefile.am added to patch patches/parallelmake.patch
                 </literallayout>
                 For more information on using Quilt, see the
-                "<link linkend='using-a-quilt-workflow'>Using a Quilt Workflow</link>"
+                "<link linkend='using-a-quilt-workflow'>Using Quilt in Your Workflow</link>"
                 section.
             </para>
 
@@ -8700,7 +9423,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 </literallayout>
                 The final thing you need to do to implement the fix in the
                 build is to update the "neard" recipe (i.e.
-                <filename>neard-0.14.bb</filename> so that the
+                <filename>neard-0.14.bb</filename>) so that the
                 <ulink url='&YOCTO_DOCS_REF_URL;#var-SRC_URI'><filename>SRC_URI</filename></ulink>
                 statement includes the patch file.
                 The recipe file is in the folder above the patch.
@@ -8759,216 +9482,6 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
         </section>
     </section>
 
-    <section id="examining-builds-using-toaster">
-        <title>Examining Builds Using the Toaster API</title>
-
-        <para>
-            Toaster is an Application Programming Interface (API) and
-            web-based interface to the OpenEmbedded build system, which uses
-            BitBake.
-            Both interfaces are based on a Representational State Transfer
-            (REST) API that queries for and returns build information using
-            <filename>GET</filename> and <filename>JSON</filename>.
-            These types of search operations retrieve sets of objects from
-            a datastore used to collect build information.
-            The results contain all the data for the objects being returned.
-            You can order the results of the search by key and the search
-            parameters are consistent for all object types.
-        </para>
-
-        <para>
-            Using the interfaces you can do the following:
-            <itemizedlist>
-                <listitem><para>See information about the tasks executed
-                    and reused during the build.</para></listitem>
-                <listitem><para>See what is built (recipes and
-                    packages) and what packages were installed into the final
-                    image.</para></listitem>
-                <listitem><para>See performance-related information such
-                    as build time, CPU usage, and disk I/O.</para></listitem>
-                <listitem><para>Examine error, warning and trace messages
-                    to aid in debugging.</para></listitem>
-            </itemizedlist>
-        </para>
-
-        <note>
-            <para>This release of Toaster provides you with information
-            about a BitBake run.
-            The tool does not allow you to configure and launch a build.
-            However, future development includes plans to integrate the
-            configuration and build launching capabilities of
-            <ulink url='&YOCTO_HOME_URL;/tools-resources/projects/hob'>Hob</ulink>.
-            </para>
-            <para>For more information on using Hob to build an image,
-            see the
-            "<link linkend='image-development-using-hob'>Image Development Using Hob</link>"
-            section.</para>
-        </note>
-
-        <para>
-            The remainder of this section describes what you need to have in
-            place to use Toaster, how to start it, use it, and stop it.
-            For additional information on installing and running Toaster, see the
-            "<ulink url='https://wiki.yoctoproject.org/wiki/Toaster#Installation_and_Running'>Installation and Running</ulink>"
-            section of the "Toaster" wiki page.
-            For complete information on the API and its search operation
-            URI, parameters, and responses, see the
-            <ulink url='https://wiki.yoctoproject.org/wiki/REST_API_Contracts'>REST API Contracts</ulink>
-            Wiki page.
-        </para>
-
-        <section id='starting-toaster'>
-            <title>Starting Toaster</title>
-
-            <para>
-                Getting set up to use and start Toaster is simple.
-                First, be sure you have met the following requirements:
-                <itemizedlist>
-                    <listitem><para>You have set up your
-                        <link linkend='source-directory'>Source Directory</link>
-                        by cloning the upstream <filename>poky</filename>
-                        repository.
-                        See the
-                        <link linkend='local-yp-release'>Yocto Project Release</link>
-                        item for information on how to set up the Source
-                        Directory.</para></listitem>
-                    <listitem><para>Be sure your build machine has
-                        <ulink url='http://en.wikipedia.org/wiki/Django_%28web_framework%29'>Django</ulink>
-                        version 1.5 installed.</para></listitem>
-                    <listitem><para>Make sure that port 8000 and 8200 are
-                        free (i.e. they have no servers on them).
-                        </para></listitem>
-                </itemizedlist>
-            </para>
-
-            <para>
-                Once you have met the requirements, follow these steps to
-                start Toaster running in the background of your shell:
-                <orderedlist>
-                    <listitem><para><emphasis>Set up your build environment:</emphasis>
-                        Source a build environment script (i.e.
-                        <ulink url='&YOCTO_DOCS_REF_URL;#structure-core-script'><filename>&OE_INIT_FILE;</filename></ulink>
-                        or
-                        <ulink url='&YOCTO_DOCS_REF_URL;#structure-memres-core-script'><filename>oe-init-build-env-memres</filename></ulink>).
-                        </para></listitem>
-                    <listitem><para><emphasis>Start Toaster:</emphasis>
-                        Start the Toaster service using this
-                        command from within your
-                        <link linkend='build-directory'>Build Directory</link>:
-                        <literallayout class='monospaced'>
-     $ source toaster start
-                        </literallayout></para></listitem>
-                        <note>
-                            The Toaster must be started and running in order
-                            for it to collect data.
-                        </note>
-                </orderedlist>
-            </para>
-
-            <para>
-                When Toaster starts, it creates some additional files in your
-                Build Directory.
-                Deleting these files will cause you to lose data or interrupt
-                Toaster:
-                <itemizedlist>
-                    <listitem><para><emphasis><filename>toaster.sqlite</filename>:</emphasis>
-                        Toaster's database file.</para></listitem>
-                    <listitem><para><emphasis><filename>toaster_web.log</filename>:</emphasis>
-                        The log file of the web server.</para></listitem>
-                    <listitem><para><emphasis><filename>toaster_ui.log</filename>:</emphasis>
-                        The log file of the user interface component.
-                        </para></listitem>
-                    <listitem><para><emphasis><filename>toastermain.pid</filename>:</emphasis>
-                        The PID of the web server.</para></listitem>
-                    <listitem><para><emphasis><filename>toasterui.pid</filename>:</emphasis>
-                        The PID of the DSI data bridge.</para></listitem>
-                    <listitem><para><emphasis><filename>bitbake-cookerdaemon.log</filename>:</emphasis>
-                        The BitBake server's log file.</para></listitem>
-                </itemizedlist>
-            </para>
-        </section>
-
-        <section id='using-toaster'>
-            <title>Using Toaster</title>
-
-            <para>
-                Once Toaster is running, it logs information for any BitBake
-                run from your Build Directory.
-                This logging is automatic.
-                All you need to do is access and use the information.
-            </para>
-
-            <para>
-                You access the information one of two ways:
-                <itemizedlist>
-                    <listitem><para>Open a Browser and enter
-                        <filename>http://localhost:8000</filename>
-                        for the URL.
-                        </para></listitem>
-                    <listitem><para>Use the <filename>xdg-open</filename>
-                        tool from the shell and pass it the same URL.
-                        </para></listitem>
-                </itemizedlist>
-                Either method opens the home page for the Toaster interface.
-            </para>
-
-            <note><title>Notes</title>
-                <para>
-                    For information on how to delete information from the Toaster
-                    database, see the
-                    <ulink url='https://wiki.yoctoproject.org/wiki/Toaster#Deleting_a_Build_from_the_Toaster_Database'>Deleting a Build from the Toaster Database</ulink>
-                    wiki page.
-                </para>
-
-                <para>
-                    For information on how to set up an instance of Toaster on
-                    a remote host, see the
-                    <ulink url='https://wiki.yoctoproject.org/wiki/Toaster#Setting_up_a_Toaster_Instance_on_a_Remote_Host'>Setting Up a Toaster Instance on a Remote Host</ulink>
-                    wiki page.
-                </para>
-            </note>
-        </section>
-
-        <section id='examining-toaster-data'>
-            <title>Examining Toaster Data</title>
-
-            <para>
-                The Toaster database is persistent regardless of whether you
-                start or stop the service.
-            </para>
-
-            <para>
-                Toaster's interface shows you a list of builds
-                (successful and unsuccessful) for which it has data.
-                You can click on any build to see related information.
-                This information includes configuration details, information
-                about tasks, all recipes and packages built and their
-                dependencies, packages and their directory structure as
-                installed in your final image,
-                execution time, CPU usage and disk I/O per task.
-            </para>
-
-            <para>
-                For details on the interface, see the
-                <ulink url='https://www.yoctoproject.org/documentation/toaster-manual'>Toaster Manual</ulink>.
-            </para>
-        </section>
-
-        <section id='stopping-toaster'>
-            <title>Stopping Toaster</title>
-
-            <para>
-                Stop the Toaster service with the following command
-                from with the
-                <link linkend='build-directory'>Build Directory</link>:
-                <literallayout class='monospaced'>
-     $ source toaster stop
-                </literallayout>
-                The service stops but the Toaster database remains persistent.
-            </para>
-        </section>
-    </section>
-
     <section id="platdev-oprofile">
         <title>Profiling with OProfile</title>
 
@@ -8995,7 +9508,8 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             takes place.
             You can gain access to the symbols by using "dbg-pkgs" in the
             <filename>IMAGE_FEATURES</filename> variable or by
-            installing the appropriate DBG (<filename>-dbg</filename>) packages.
+            installing the appropriate debug (<filename>-dbg</filename>)
+            packages.
         </para>
 
         <para>
@@ -9029,14 +9543,14 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
 
             <para>
                 <literallayout class='monospaced'>
-     # opcontrol &dash;&dash;reset
-     # opcontrol &dash;&dash;start &dash;&dash;separate=lib &dash;&dash;no-vmlinux -c 5
+     # opcontrol --reset
+     # opcontrol --start --separate=lib --no-vmlinux -c 5
               .
               .
         [do whatever is being profiled]
               .
               .
-     # opcontrol &dash;&dash;stop
+     # opcontrol --stop
      $ opreport -cl
                 </literallayout>
             </para>
@@ -9049,7 +9563,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 five levels deep.
                 <note>
                     To profile the kernel, you would specify the
-                    <filename>&dash;&dash;vmlinux=/path/to/vmlinux</filename> option.
+                    <filename>--vmlinux=/path/to/vmlinux</filename> option.
                     The <filename>vmlinux</filename> file is usually in the source directory in the
                     <filename>/boot/</filename> directory and must match the running kernel.
                 </note>
@@ -9112,7 +9626,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     With this connection, you just need to run "oprofile-server" on the device.
                     By default, OProfile listens on port 4224.
                     <note>
-                        You can change the port using the <filename>&dash;&dash;port</filename> command-line
+                        You can change the port using the <filename>--port</filename> command-line
                         option.
                     </note>
                 </para>
@@ -9169,8 +9683,8 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     If you wish to perform kernel profiling, you need to be sure
                     a <filename>vmlinux</filename> file that matches the running kernel is available.
                     In the source directory, that file is usually located in
-                    <filename>/boot/vmlinux-KERNELVERSION</filename>, where
-                    <filename>KERNEL-version</filename> is the version of the kernel.
+                    <filename>/boot/vmlinux-<replaceable>kernelversion</replaceable></filename>, where
+                    <filename><replaceable>kernelversion</replaceable></filename> is the version of the kernel.
                     The OpenEmbedded build system generates separate <filename>vmlinux</filename>
                     packages for each kernel it builds.
                     Thus, it should just be a question of making sure a matching package is
@@ -9202,14 +9716,14 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                     If network access to the target is unavailable, you can generate
                     an archive for processing in <filename>oprofile-viewer</filename> as follows:
                     <literallayout class='monospaced'>
-     # opcontrol &dash;&dash;reset
-     # opcontrol &dash;&dash;start &dash;&dash;separate=lib &dash;&dash;no-vmlinux -c 5
+     # opcontrol --reset
+     # opcontrol --start --separate=lib --no-vmlinux -c 5
             .
             .
      [do whatever is being profiled]
             .
             .
-     # opcontrol &dash;&dash;stop
+     # opcontrol --stop
      # oparchive -o my_archive
                     </literallayout>
                 </para>
@@ -9272,7 +9786,7 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
             <note>
                 The Yocto Project generates a license manifest during
                 image creation that is located
-                in <filename>${DEPLOY_DIR}/licenses/&lt;image_name-datestamp&gt;</filename>
+                in <filename>${DEPLOY_DIR}/licenses/<replaceable>image_name-datestamp</replaceable></filename>
                 to assist with any audits.
             </note>
         </para>
@@ -9444,11 +9958,6 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
        ##OEROOT##/meta-yocto-bsp \
        ##OEROOT##/meta-mylayer \
        "
-
-     BBLAYERS_NON_REMOVABLE ?= " \
-       ##OEROOT##/meta \
-       ##OEROOT##/meta-yocto \
-       "
                 </literallayout>
                 Creating and providing an archive of the
                 <link linkend='metadata'>Metadata</link> layers
@@ -9514,28 +10023,36 @@ Gateways via their Web Interfaces</ulink>"</emphasis>
                 </literallayout>
                 Enabling error reporting causes the build process to collect
                 the errors and store them in a file as previously described.
-                When the build system encounters an error, it includes a command
-                as part of the console output.
+                When the build system encounters an error, it includes a
+                command as part of the console output.
                 You can run the command to send the error file to the server.
-                For example, the following command sends the errors to an upstream
-                server:
+                For example, the following command sends the errors to an
+                upstream server:
                 <literallayout class='monospaced'>
-     send-error-report /home/brandusa/project/poky/build/tmp/log/error-report/error_report_201403141617.txt [server]
+     $ send-error-report /home/brandusa/project/poky/build/tmp/log/error-report/error_report_201403141617.txt
                 </literallayout>
-                In the above example, the <filename>server</filename> parameter is
-                optional.
-                By default, the errors are sent to a database used by the entire
-                community.
-                If you specify a particular server, you can send them to a different
-                database.
+                In the previous example, the errors are sent to a public
+                database available at
+                <ulink url='http://errors.yoctoproject.org'></ulink>, which is
+                used by the entire community.
+                If you specify a particular server, you can send the errors
+                to a different database.
+                Use the following command for more information on available
+                options:
+                <literallayout class='monospaced'>
+     $ send-error-report --help
+                </literallayout>
             </para>
 
             <para>
-                When sending the error file, you receive a link that corresponds
-                to your entry in the database.
+                When sending the error file, you are prompted to review the
+                data being sent as well as to provide a name and optional
+                email address.
+                Once you satisfy these prompts, the command returns a link
+                from the server that corresponds to your entry in the database.
                 For example, here is a typical link:
                 <literallayout class='monospaced'>
-     http://localhost:8000/Errors/Search/1/158
+     http://errors.yoctoproject.org/Errors/Details/9522/
                 </literallayout>
                 Following the link takes you to a web interface where you can
                 browse, query the errors, and view statistics.

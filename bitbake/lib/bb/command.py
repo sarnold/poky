@@ -68,10 +68,12 @@ class Command:
                 if not hasattr(command_method, 'readonly') or False == getattr(command_method, 'readonly'):
                     return None, "Not able to execute not readonly commands in readonly mode"
             try:
+                if getattr(command_method, 'needconfig', False):
+                    self.cooker.updateCacheSync()
                 result = command_method(self, commandline)
             except CommandError as exc:
                 return None, exc.args[0]
-            except Exception:
+            except (Exception, SystemExit):
                 import traceback
                 return None, traceback.format_exc()
             else:
@@ -87,6 +89,9 @@ class Command:
     def runAsyncCommand(self):
         try:
             if self.cooker.state in (bb.cooker.state.error, bb.cooker.state.shutdown, bb.cooker.state.forceshutdown):
+                # updateCache will trigger a shutdown of the parser
+                # and then raise BBHandledException triggering an exit
+                self.cooker.updateCache()
                 return False
             if self.currentAsyncCommand is not None:
                 (command, options) = self.currentAsyncCommand
@@ -120,11 +125,11 @@ class Command:
 
     def finishAsyncCommand(self, msg=None, code=None):
         if msg or msg == "":
-            bb.event.fire(CommandFailed(msg), self.cooker.event_data)
+            bb.event.fire(CommandFailed(msg), self.cooker.expanded_data)
         elif code:
-            bb.event.fire(CommandExit(code), self.cooker.event_data)
+            bb.event.fire(CommandExit(code), self.cooker.expanded_data)
         else:
-            bb.event.fire(CommandCompleted(), self.cooker.event_data)
+            bb.event.fire(CommandCompleted(), self.cooker.expanded_data)
         self.currentAsyncCommand = None
         self.cooker.finishcommand()
 
@@ -176,6 +181,16 @@ class CommandsSync:
         value = str(params[1])
         command.cooker.data.setVar(varname, value)
 
+    def getSetVariable(self, command, params):
+        """
+        Read the value of a variable from data and set it into the datastore
+        which effectively expands and locks the value.
+        """
+        varname = params[0]
+        result = self.getVariable(command, params)
+        command.cooker.data.setVar(varname, result)
+        return result
+
     def setConfig(self, command, params):
         """
         Set the value of variable in configuration
@@ -201,6 +216,7 @@ class CommandsSync:
         postfiles = params[1].split()
         command.cooker.configuration.prefile = prefiles
         command.cooker.configuration.postfile = postfiles
+    setPrePostConfFiles.needconfig = False
 
     def getCpuCount(self, command, params):
         """
@@ -208,10 +224,12 @@ class CommandsSync:
         """
         return bb.utils.cpu_count()
     getCpuCount.readonly = True
+    getCpuCount.needconfig = False
 
     def matchFile(self, command, params):
         fMatch = params[0]
         return command.cooker.matchFile(fMatch)
+    matchFile.needconfig = False
 
     def generateNewImage(self, command, params):
         image = params[0]
@@ -225,6 +243,7 @@ class CommandsSync:
     def ensureDir(self, command, params):
         directory = params[0]
         bb.utils.mkdirhier(directory)
+    ensureDir.needconfig = False
 
     def setVarFile(self, command, params):
         """
@@ -235,6 +254,7 @@ class CommandsSync:
         default_file = params[2]
         op = params[3]
         command.cooker.modifyConfigurationVar(var, val, default_file, op)
+    setVarFile.needconfig = False
 
     def removeVarFile(self, command, params):
         """
@@ -242,6 +262,7 @@ class CommandsSync:
         """
         var = params[0]
         command.cooker.removeConfigurationVar(var)
+    removeVarFile.needconfig = False
 
     def createConfigFile(self, command, params):
         """
@@ -249,6 +270,7 @@ class CommandsSync:
         """
         name = params[0]
         command.cooker.createConfigFile(name)
+    createConfigFile.needconfig = False
 
     def setEventMask(self, command, params):
         handlerNum = params[0]
@@ -256,6 +278,7 @@ class CommandsSync:
         debug_domains = params[2]
         mask = params[3]
         return bb.event.set_UIHmask(handlerNum, llevel, debug_domains, mask)
+    setEventMask.needconfig = False
 
     def setFeatures(self, command, params):
         """
@@ -263,10 +286,16 @@ class CommandsSync:
         """
         features = params[0]
         command.cooker.setFeatures(features)
-
+    setFeatures.needconfig = False
     # although we change the internal state of the cooker, this is transparent since
     # we always take and leave the cooker in state.initial
     setFeatures.readonly = True
+
+    def updateConfig(self, command, params):
+        options = params[0]
+        environment = params[1]
+        command.cooker.updateConfigOpts(options, environment)
+    updateConfig.needconfig = False
 
 class CommandsAsync:
     """

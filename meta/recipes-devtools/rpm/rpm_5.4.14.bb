@@ -5,6 +5,8 @@ verifying, querying, and updating software packages. Each software \
 package consists of an archive of files along with information about \
 the package like its version, a description, etc."
 
+RECIPE_NO_UPDATE_REASON = "5.4.15 has a package database issue: http://lists.openembedded.org/pipermail/openembedded-core/2015-August/109187.html"
+
 SUMMARY_${PN}-libs = "Libraries for manipulating RPM packages"
 DESCRIPTION_${PN}-libs = "This package contains the RPM shared libraries."
 
@@ -34,15 +36,12 @@ DESCRIPTION_perl-modules-rpm = "The perl-modules-rpm package contains a module t
 written in the Perl programming language to use the interface \
 supplied by the RPM Package Manager libraries."
 
-SUMMARY_perl-module-rpm-dev = "Development components for perl bindings"
-DESCRIPTION_perl-modules-rpm-dev = "Development items such as man pages for use with the Perl \
-language bindings."
-
 HOMEPAGE = "http://rpm5.org/"
 LICENSE = "LGPLv2.1"
 LIC_FILES_CHKSUM = "file://COPYING.LIB;md5=2d5025d4aa3495befef8f17206a5b0a1"
 
 DEPENDS = "libpcre attr acl popt ossp-uuid file byacc-native"
+DEPENDS_append_class-native = " file-replacement-native"
 
 # rpm2cpio is a shell script, which is part of the rpm src.rpm.  It is needed
 # in order to extract the distribution SRPM into a format we can extract...
@@ -93,6 +92,15 @@ SRC_URI = "http://www.rpm5.org/files/rpm/rpm-5.4/rpm-5.4.14-0.20131024.src.rpm;e
 	   file://rpm-db5-or-db6.patch \
 	   file://rpm-disable-Wno-override-init.patch \
 	   file://rpmqv_cc_b_gone.patch \
+	   file://rpm-realpath.patch \
+	   file://0001-using-poptParseArgvString-to-parse-the-_gpg_check_pa.patch \
+	   file://no-ldflags-in-pkgconfig.patch \
+	   file://rpm-lua-fix-print.patch \
+	   file://rpm-check-rootpath-reasonableness.patch \
+	   file://rpm-macros.in-disable-external-key-server.patch \
+	   file://rpm-opendb-before-verifyscript-to-avoid-null-point.patch \
+	   file://configure.ac-check-for-both-gpg2-and-gpg.patch \
+	   file://0001-define-EM_AARCH64.patch \
 	  "
 
 # Uncomment the following line to enable platform score debugging
@@ -108,9 +116,9 @@ inherit autotools gettext
 acpaths = "-I ${S}/db/dist/aclocal -I ${S}/db/dist/aclocal_java"
 
 # Specify the default rpm macros in terms of adjustable variables
-rpm_macros = "%{_usrlibrpm}/macros:%{_usrlibrpm}/poky/macros:%{_usrlibrpm}/poky/%{_target}/macros:%{_etcrpm}/macros.*:%{_etcrpm}/macros:%{_etcrpm}/%{_target}/macros:~/.oerpmmacros"
-rpm_macros_class-native = "%{_usrlibrpm}/macros:%{_usrlibrpm}/poky/macros:%{_usrlibrpm}/poky/%{_target}/macros:~/.oerpmmacros"
-rpm_macros_class-nativesdk = "%{_usrlibrpm}/macros:%{_usrlibrpm}/poky/macros:%{_usrlibrpm}/poky/%{_target}/macros:~/.oerpmmacros"
+rpm_macros = "%{_usrlibrpm}/macros:%{_usrlibrpm}/${DISTRO}/macros:%{_usrlibrpm}/${DISTRO}/%{_target}/macros:%{_etcrpm}/macros.*:%{_etcrpm}/macros:%{_etcrpm}/%{_target}/macros:~/.oerpmmacros"
+rpm_macros_class-native = "%{_usrlibrpm}/macros:%{_usrlibrpm}/${DISTRO}/macros:%{_usrlibrpm}/${DISTRO}/%{_target}/macros:~/.oerpmmacros"
+rpm_macros_class-nativesdk = "%{_usrlibrpm}/macros:%{_usrlibrpm}/${DISTRO}/macros:%{_usrlibrpm}/${DISTRO}/%{_target}/macros:~/.oerpmmacros"
 
 # sqlite lua tcl augeas nss gcrypt neon xz xar keyutils perl selinux
 
@@ -208,7 +216,7 @@ CFLAGS_append = " -DRPM_VENDOR_WINDRIVER -DRPM_VENDOR_POKY -DRPM_VENDOR_OE"
 
 LDFLAGS_append_libc-uclibc = "-lrt -lpthread"
 
-PACKAGES = "${PN}-dbg ${PN} ${PN}-doc ${PN}-libs ${PN}-dev ${PN}-staticdev ${PN}-common ${PN}-build python-rpm-dbg python-rpm-staticdev python-rpm-dev python-rpm perl-module-rpm perl-module-rpm-dev ${PN}-locale"
+PACKAGES = "${PN}-dbg ${PN} ${PN}-doc ${PN}-libs ${PN}-dev ${PN}-staticdev ${PN}-common ${PN}-build python-rpm perl-module-rpm ${PN}-locale"
 
 SOLIBS = "5.4.so"
 
@@ -245,6 +253,7 @@ FILES_${PN} =  "${bindir}/rpm \
 
 FILES_${PN}-dbg += "${libdir}/rpm/.debug \
 		${libdir}/rpm/bin/.debug \
+		${libdir}/python*/site-packages/rpm/.debug/_* \
 		"
 
 FILES_${PN}-common = "${bindir}/rpm2cpio \
@@ -260,8 +269,6 @@ FILES_${PN}-libs = "${libdir}/librpm-*.so \
 		${libdir}/librpmmisc-*.so \
 		${libdir}/librpmbuild-*.so \
 		"
-
-RDEPENDS_${PN}-build += "bash"
 
 FILES_${PN}-build = "${prefix}/src/rpm \
 		${bindir}/rpmbuild \
@@ -336,19 +343,14 @@ FILES_${PN}-build = "${prefix}/src/rpm \
 RDEPENDS_${PN} = "base-files run-postinsts"
 RDEPENDS_${PN}_class-native = ""
 RDEPENDS_${PN}_class-nativesdk = ""
-RDEPENDS_${PN}-build = "file"
+RDEPENDS_${PN}-build = "file bash perl"
 
 RDEPENDS_python-rpm = "${PN}"
 
-FILES_python-rpm-dbg = "${libdir}/python*/site-packages/rpm/.debug/_*"
-FILES_python-rpm-dev = "${libdir}/python*/site-packages/rpm/*.la"
-FILES_python-rpm-staticdev = "${libdir}/python*/site-packages/rpm/*.a"
 FILES_python-rpm = "${libdir}/python*/site-packages/rpm"
+PROVIDES += "python-rpm"
 
 FILES_perl-module-rpm = "${libdir}/perl/*/* \
-		"
-
-FILES_perl-module-rpm-dev = "${prefix}/share/man/man3/RPM* \
 		"
 
 RDEPENDS_${PN}-dev += "bash"
@@ -379,6 +381,7 @@ FILES_${PN}-staticdev = " \
 		${libdir}/librpmmisc.a \
 		${libdir}/librpmbuild.a \
 		${libdir}/rpm/lib/liblua.a \
+		${libdir}/python*/site-packages/rpm/*.a \
 		"
 
 do_configure() {
@@ -399,7 +402,6 @@ do_configure() {
 }
 
 do_install_append() {
-	sed -i -e 's,%__check_files,#%%__check_files,' ${D}/${libdir}/rpm/macros
 	sed -i -e 's,%__scriptlet_requires,#%%__scriptlet_requires,' ${D}/${libdir}/rpm/macros
 	sed -i -e 's,%__perl_provides,#%%__perl_provides,' ${D}/${libdir}/rpm/macros ${D}/${libdir}/rpm/macros.d/*
 	sed -i -e 's,%__perl_requires,#%%__perl_requires,' ${D}/${libdir}/rpm/macros ${D}/${libdir}/rpm/macros.d/*

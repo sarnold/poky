@@ -33,6 +33,10 @@ do_compile () {
 	:
 }
 
+do_shared_workdir () {
+	:
+}
+
 do_install() {
 	:
 }
@@ -45,7 +49,6 @@ do_deploy() {
 	:
 }
 
-do_bundle_initramfs[nostamp] = "1"
-addtask bundle_initramfs after do_compile
+addtask bundle_initramfs after do_install before do_deploy
 addtask deploy after do_install
-
+addtask shared_workdir after do_compile before do_install

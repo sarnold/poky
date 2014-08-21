@@ -5,16 +5,19 @@ import multiprocessing
 
 
 def generate_image(arg):
-    (type, subimages, create_img_cmd) = arg
+    (type, subimages, create_img_cmd, sprefix) = arg
 
     bb.note("Running image creation script for %s: %s ..." %
             (type, create_img_cmd))
 
     try:
-        subprocess.check_output(create_img_cmd, stderr=subprocess.STDOUT)
+        output = subprocess.check_output(create_img_cmd,
+                                         stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         return("Error: The image creation script '%s' returned %d:\n%s" %
                (e.cmd, e.returncode, e.output))
+
+    bb.note("Script output:\n%s" % output)
 
     return None
 
@@ -48,15 +51,19 @@ class ImageDepGraph(object):
         graph = dict()
 
         def add_node(node):
+            base_type = self._image_base_type(node)
             deps = (self.d.getVar('IMAGE_TYPEDEP_' + node, True) or "")
-            if deps != "":
-                graph[node] = deps
+            base_deps = (self.d.getVar('IMAGE_TYPEDEP_' + base_type, True) or "")
 
-                for dep in deps.split():
-                    if not dep in graph:
-                        add_node(dep)
-            else:
-                graph[node] = ""
+            graph[node] = ""
+            for dep in deps.split() + base_deps.split():
+                if not dep in graph[node]:
+                    if graph[node] != "":
+                        graph[node] += " "
+                    graph[node] += dep
+
+                if not dep in graph:
+                    add_node(dep)
 
         for fstype in image_fstypes:
             add_node(fstype)
@@ -64,13 +71,25 @@ class ImageDepGraph(object):
         return graph
 
     def _clean_graph(self):
-        # Live and VMDK images will be processed via inheriting
+        # Live and VMDK/VDI images will be processed via inheriting
         # bbclass and does not get processed here. Remove them from the fstypes
         # graph. Their dependencies are already added, so no worries here.
         remove_list = (self.d.getVar('IMAGE_TYPES_MASKED', True) or "").split()
 
         for item in remove_list:
             self.graph.pop(item, None)
+
+    def _image_base_type(self, type):
+        ctypes = self.d.getVar('COMPRESSIONTYPES', True).split()
+        if type in ["vmdk", "vdi", "qcow2", "live", "iso", "hddimg"]:
+            type = "ext4"
+        basetype = type
+        for ctype in ctypes:
+            if type.endswith("." + ctype):
+                basetype = type[:-len("." + ctype)]
+                break
+
+        return basetype
 
     def _compute_dependencies(self):
         """
@@ -109,7 +128,7 @@ class ImageDepGraph(object):
         # remove added nodes from deps_array
         for item in group:
             for node in self.graph:
-                if item in self.graph[node]:
+                if item in self.graph[node].split():
                     self.deps_array[node][0] -= 1
 
             self.deps_array.pop(item, None)
@@ -155,6 +174,8 @@ class Image(ImageDepGraph):
 
         if base_size != int(base_size):
             base_size = int(base_size + 1)
+        else:
+            base_size = int(base_size)
 
         base_size += rootfs_alignment - 1
         base_size -= base_size % rootfs_alignment
@@ -177,7 +198,7 @@ class Image(ImageDepGraph):
 
         os.chdir(deploy_dir)
 
-        if link_name is not None:
+        if link_name:
             for type in subimages:
                 if os.path.exists(img_name + ".rootfs." + type):
                     dst = link_name + "." + type
@@ -245,17 +266,19 @@ class Image(ImageDepGraph):
 
         return (alltypes, filtered_groups, cimages)
 
-    def _write_script(self, type, cmds):
+    def _write_script(self, type, cmds, sprefix=""):
         tempdir = self.d.getVar('T', True)
-        script_name = os.path.join(tempdir, "create_image." + type)
+        script_name = os.path.join(tempdir, sprefix + "create_image." + type)
+        rootfs_size = self._get_rootfs_size()
 
         self.d.setVar('img_creation_func', '\n'.join(cmds))
-        self.d.setVarFlag('img_creation_func', 'func', 1)
-        self.d.setVarFlag('img_creation_func', 'fakeroot', 1)
+        self.d.setVarFlag('img_creation_func', 'func', '1')
+        self.d.setVarFlag('img_creation_func', 'fakeroot', '1')
+        self.d.setVar('ROOTFS_SIZE', str(rootfs_size))
 
         with open(script_name, "w+") as script:
             script.write("%s" % bb.build.shell_trap_code())
-            script.write("export ROOTFS_SIZE=%d\n" % self._get_rootfs_size())
+            script.write("export ROOTFS_SIZE=%d\n" % rootfs_size)
             bb.data.emit_func('img_creation_func', script, self.d)
             script.write("img_creation_func\n")
 
@@ -263,7 +286,7 @@ class Image(ImageDepGraph):
 
         return script_name
 
-    def _get_imagecmds(self):
+    def _get_imagecmds(self, sprefix=""):
         old_overrides = self.d.getVar('OVERRIDES', 0)
 
         alltypes, fstype_groups, cimages = self._get_image_types()
@@ -282,7 +305,11 @@ class Image(ImageDepGraph):
                 bb.data.update_data(localdata)
                 localdata.setVar('type', type)
 
-                cmds.append("\t" + localdata.getVar("IMAGE_CMD", True))
+                image_cmd = localdata.getVar("IMAGE_CMD", True)
+                if image_cmd:
+                    cmds.append("\t" + image_cmd)
+                else:
+                    bb.fatal("No IMAGE_CMD defined for IMAGE_FSTYPES entry '%s' - possibly invalid type name or missing support class" % type)
                 cmds.append(localdata.expand("\tcd ${DEPLOY_DIR_IMAGE}"))
 
                 if type in cimages:
@@ -295,13 +322,29 @@ class Image(ImageDepGraph):
                 else:
                     subimages.append(type)
 
-                script_name = self._write_script(type, cmds)
+                script_name = self._write_script(type, cmds, sprefix)
 
-                image_cmds.append((type, subimages, script_name))
+                image_cmds.append((type, subimages, script_name, sprefix))
 
             image_cmd_groups.append(image_cmds)
 
         return image_cmd_groups
+
+    def _write_wic_env(self):
+        """
+        Write environment variables used by wic
+        to tmp/sysroots/<machine>/imgdata/<image>.env
+        """
+        stdir = self.d.getVar('STAGING_DIR_TARGET', True)
+        outdir = os.path.join(stdir, 'imgdata')
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+        basename = self.d.getVar('IMAGE_BASENAME', True)
+        with open(os.path.join(outdir, basename) + '.env', 'w') as envf:
+            for var in self.d.getVar('WICVARS', True).split():
+                value = self.d.getVar(var, True)
+                if value:
+                    envf.write('%s="%s"\n' % (var, value.strip()))
 
     def create(self):
         bb.note("###### Generate images #######")
@@ -313,6 +356,29 @@ class Image(ImageDepGraph):
         self._remove_old_symlinks()
 
         image_cmd_groups = self._get_imagecmds()
+
+        # Process the debug filesystem...
+        debugfs_d = bb.data.createCopy(self.d)
+        if self.d.getVar('IMAGE_GEN_DEBUGFS', True) == "1":
+            bb.note("Processing debugfs image(s) ...")
+            orig_d = self.d
+            self.d = debugfs_d
+
+            self.d.setVar('IMAGE_ROOTFS', orig_d.getVar('IMAGE_ROOTFS', True) + '-dbg')
+            self.d.setVar('IMAGE_NAME', orig_d.getVar('IMAGE_NAME', True) + '-dbg')
+            self.d.setVar('IMAGE_LINK_NAME', orig_d.getVar('IMAGE_LINK_NAME', True) + '-dbg')
+
+            debugfs_image_fstypes = orig_d.getVar('IMAGE_FSTYPES_DEBUGFS', True)
+            if debugfs_image_fstypes:
+                self.d.setVar('IMAGE_FSTYPES', orig_d.getVar('IMAGE_FSTYPES_DEBUGFS', True))
+
+            self._remove_old_symlinks()
+
+            image_cmd_groups += self._get_imagecmds("debugfs.")
+
+            self.d = orig_d
+
+        self._write_wic_env()
 
         for image_cmds in image_cmd_groups:
             # create the images in parallel
@@ -326,9 +392,16 @@ class Image(ImageDepGraph):
                 if result is not None:
                     bb.fatal(result)
 
-            for image_type, subimages, script in image_cmds:
-                bb.note("Creating symlinks for %s image ..." % image_type)
-                self._create_symlinks(subimages)
+            for image_type, subimages, script, sprefix in image_cmds:
+                if sprefix == 'debugfs.':
+                    bb.note("Creating symlinks for %s debugfs image ..." % image_type)
+                    orig_d = self.d
+                    self.d = debugfs_d
+                    self._create_symlinks(subimages)
+                    self.d = orig_d
+                else:
+                    bb.note("Creating symlinks for %s image ..." % image_type)
+                    self._create_symlinks(subimages)
 
         execute_pre_post_process(self.d, post_process_cmds)
 

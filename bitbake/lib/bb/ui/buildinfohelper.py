@@ -16,22 +16,44 @@
 # with this program; if not, write to the Free Software Foundation, Inc.,
 # 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-import datetime
 import sys
 import bb
 import re
-import ast
+import os
 
 os.environ["DJANGO_SETTINGS_MODULE"] = "toaster.toastermain.settings"
 
-import toaster.toastermain.settings as toaster_django_settings
+
+from django.utils import timezone
+
+
+def _configure_toaster():
+    """ Add toaster to sys path for importing modules
+    """
+    sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'toaster'))
+_configure_toaster()
+
 from toaster.orm.models import Build, Task, Recipe, Layer_Version, Layer, Target, LogMessage, HelpText
-from toaster.orm.models import Target_Image_File
+from toaster.orm.models import Target_Image_File, BuildArtifact
 from toaster.orm.models import Variable, VariableHistory
 from toaster.orm.models import Package, Package_File, Target_Installed_Package, Target_File
 from toaster.orm.models import Task_Dependency, Package_Dependency
 from toaster.orm.models import Recipe_Dependency
-from bb.msg import BBLogFormatter as format
+
+from toaster.orm.models import Project
+from bldcontrol.models import BuildEnvironment, BuildRequest
+
+from bb.msg import BBLogFormatter as formatter
+from django.db import models
+from pprint import pformat
+import logging
+
+from django.db import transaction, connection
+
+# pylint: disable=invalid-name
+# the logger name is standard throughout BitBake
+logger = logging.getLogger("ToasterLogger")
+
 
 class NotExisting(Exception):
     pass
@@ -43,10 +65,66 @@ class ORMWrapper(object):
     """
 
     def __init__(self):
-        pass
+        self.layer_version_objects = []
+        self.layer_version_built = []
+        self.task_objects = {}
+        self.recipe_objects = {}
+
+    @staticmethod
+    def _build_key(**kwargs):
+        key = "0"
+        for k in sorted(kwargs.keys()):
+            if isinstance(kwargs[k], models.Model):
+                key += "-%d" % kwargs[k].id
+            else:
+                key += "-%s" % str(kwargs[k])
+        return key
 
 
-    def create_build_object(self, build_info, brbe):
+    def _cached_get_or_create(self, clazz, **kwargs):
+        """ This is a memory-cached get_or_create. We assume that the objects will not be created in the
+            database through any other means.
+        """
+
+        assert issubclass(clazz, models.Model), "_cached_get_or_create needs to get the class as first argument"
+
+        key = ORMWrapper._build_key(**kwargs)
+        dictname = "objects_%s" % clazz.__name__
+        if not dictname in vars(self).keys():
+            vars(self)[dictname] = {}
+
+        created = False
+        if not key in vars(self)[dictname].keys():
+            vars(self)[dictname][key], created = \
+                clazz.objects.get_or_create(**kwargs)
+
+        return (vars(self)[dictname][key], created)
+
+
+    def _cached_get(self, clazz, **kwargs):
+        """ This is a memory-cached get. We assume that the objects will not change  in the database between gets.
+        """
+        assert issubclass(clazz, models.Model), "_cached_get needs to get the class as first argument"
+
+        key = ORMWrapper._build_key(**kwargs)
+        dictname = "objects_%s" % clazz.__name__
+
+        if not dictname in vars(self).keys():
+            vars(self)[dictname] = {}
+
+        if not key in vars(self)[dictname].keys():
+            vars(self)[dictname][key] = clazz.objects.get(**kwargs)
+
+        return vars(self)[dictname][key]
+
+    # pylint: disable=no-self-use
+    # we disable detection of no self use in functions because the methods actually work on the object
+    # even if they don't touch self anywhere
+
+    # pylint: disable=bad-continuation
+    # we do not follow the python conventions for continuation indentation due to long lines here
+
+    def create_build_object(self, build_info, brbe, project_id):
         assert 'machine' in build_info
         assert 'distro' in build_info
         assert 'distro_version' in build_info
@@ -55,7 +133,38 @@ class ORMWrapper(object):
         assert 'build_name' in build_info
         assert 'bitbake_version' in build_info
 
-        build = Build.objects.create(
+        prj = None
+        buildrequest = None
+        if brbe is not None:            # this build was triggered by a request from a user
+            logger.debug(1, "buildinfohelper: brbe is %s" % brbe)
+            br, _ = brbe.split(":")
+            buildrequest = BuildRequest.objects.get(pk = br)
+            prj = buildrequest.project
+
+        elif project_id is not None:    # this build was triggered by an external system for a specific project
+            logger.debug(1, "buildinfohelper: project is %s" % prj)
+            prj = Project.objects.get(pk = project_id)
+
+        else:                           # this build was triggered by a legacy system, or command line interactive mode
+            prj = Project.objects.get_default_project()
+            logger.debug(1, "buildinfohelper: project is not specified, defaulting to %s" % prj)
+
+
+        if buildrequest is not None:
+            build = buildrequest.build
+            logger.info("Updating existing build, with %s", build_info)
+            build.project = prj
+            build.machine=build_info['machine']
+            build.distro=build_info['distro']
+            build.distro_version=build_info['distro_version']
+            build.cooker_log_path=build_info['cooker_log_path']
+            build.build_name=build_info['build_name']
+            build.bitbake_version=build_info['bitbake_version']
+            build.save()
+
+        else:
+            build = Build.objects.create(
+                                    project = prj,
                                     machine=build_info['machine'],
                                     distro=build_info['distro'],
                                     distro_version=build_info['distro_version'],
@@ -65,27 +174,34 @@ class ORMWrapper(object):
                                     build_name=build_info['build_name'],
                                     bitbake_version=build_info['bitbake_version'])
 
-        if brbe is not None:
-            from bldcontrol.models import BuildEnvironment, BuildRequest
-            br, be = brbe.split(":")
-            buildrequest = BuildRequest.objects.get(pk = br)
-            build.project = buildrequest.project
-            build.save()
+        logger.debug(1, "buildinfohelper: build is created %s" % build)
+
+        if buildrequest is not None:
+            buildrequest.build = build
+            buildrequest.save()
 
         return build
 
-    def create_target_objects(self, target_info):
-        assert 'build' in target_info
-        assert 'targets' in target_info
-
-        targets = []
-        for tgt_name in target_info['targets']:
-            tgt_object = Target.objects.create( build = target_info['build'],
-                                    target = tgt_name,
-                                    is_image = False,
-                                    );
-            targets.append(tgt_object)
-        return targets
+    @staticmethod
+    def get_or_create_targets(target_info):
+        result = []
+        for target in target_info['targets']:
+            task = ''
+            if ':' in target:
+                target, task = target.split(':', 1)
+            if task.startswith('do_'):
+                task = task[3:]
+            if task == 'build':
+                task = ''
+            obj, created = Target.objects.get_or_create(build=target_info['build'],
+                                                        target=target)
+            if created:
+                obj.is_image = False
+                if task:
+                    obj.task = task
+                obj.save()
+            result.append(obj)
+        return result
 
     def update_build_object(self, build, errors, warnings, taskfailures):
         assert isinstance(build,Build)
@@ -96,15 +212,11 @@ class ORMWrapper(object):
         if errors or taskfailures:
             outcome = Build.FAILED
 
-        build.completed_on = datetime.datetime.now()
-        build.timespent = int((build.completed_on - build.started_on).total_seconds())
-        build.errors_no = errors
-        build.warnings_no = warnings
+        build.completed_on = timezone.now()
         build.outcome = outcome
         build.save()
 
-    def update_target_object(self, target, license_manifest_path):
-
+    def update_target_set_license_manifest(self, target, license_manifest_path):
         target.license_manifest_path = license_manifest_path
         target.save()
 
@@ -113,91 +225,189 @@ class ORMWrapper(object):
         assert 'recipe' in task_information
         assert 'task_name' in task_information
 
-        task_object, created = Task.objects.get_or_create(
-                                build=task_information['build'],
-                                recipe=task_information['recipe'],
-                                task_name=task_information['task_name'],
-                                )
-
-        if must_exist and created:
+        # we use must_exist info for database look-up optimization
+        task_object, created = self._cached_get_or_create(Task,
+                        build=task_information['build'],
+                        recipe=task_information['recipe'],
+                        task_name=task_information['task_name']
+                        )
+        if created and must_exist:
             task_information['debug'] = "build id %d, recipe id %d" % (task_information['build'].pk, task_information['recipe'].pk)
-            task_object.delete()
             raise NotExisting("Task object created when expected to exist", task_information)
 
+        object_changed = False
         for v in vars(task_object):
             if v in task_information.keys():
-                vars(task_object)[v] = task_information[v]
+                if vars(task_object)[v] != task_information[v]:
+                    vars(task_object)[v] = task_information[v]
+                    object_changed = True
 
-        # update setscene-related information
-        if 1 == Task.objects.related_setscene(task_object).count():
-            if task_object.outcome == Task.OUTCOME_COVERED:
-                task_object.outcome = Task.OUTCOME_CACHED
+        # update setscene-related information if the task has a setscene
+        if task_object.outcome == Task.OUTCOME_COVERED and 1 == task_object.get_related_setscene().count():
+            task_object.outcome = Task.OUTCOME_CACHED
+            object_changed = True
 
             outcome_task_setscene = Task.objects.get(task_executed=True, build = task_object.build,
                                     recipe = task_object.recipe, task_name=task_object.task_name+"_setscene").outcome
             if outcome_task_setscene == Task.OUTCOME_SUCCESS:
                 task_object.sstate_result = Task.SSTATE_RESTORED
+                object_changed = True
             elif outcome_task_setscene == Task.OUTCOME_FAILED:
                 task_object.sstate_result = Task.SSTATE_FAILED
+                object_changed = True
 
         # mark down duration if we have a start time and a current time
         if 'start_time' in task_information.keys() and 'end_time' in task_information.keys():
             duration = task_information['end_time'] - task_information['start_time']
             task_object.elapsed_time = duration
+            object_changed = True
+            del task_information['start_time']
+            del task_information['end_time']
 
-        task_object.save()
+        if object_changed:
+            task_object.save()
         return task_object
 
 
     def get_update_recipe_object(self, recipe_information, must_exist = False):
         assert 'layer_version' in recipe_information
         assert 'file_path' in recipe_information
+        assert 'pathflags' in recipe_information
+
+        assert not recipe_information['file_path'].startswith("/")      # we should have layer-relative paths at all times
 
 
-        recipe_object, created = Recipe.objects.get_or_create(
-                                         layer_version=recipe_information['layer_version'],
-                                         file_path=recipe_information['file_path'])
+        def update_recipe_obj(recipe_object):
+            object_changed = False
+            for v in vars(recipe_object):
+                if v in recipe_information.keys():
+                    object_changed = True
+                    vars(recipe_object)[v] = recipe_information[v]
 
-        if must_exist and created:
-            recipe_object.delete()
-            raise NotExisting("Recipe object created when expected to exist", recipe_information)
+            if object_changed:
+                recipe_object.save()
 
-        for v in vars(recipe_object):
-            if v in recipe_information.keys():
-                vars(recipe_object)[v] = recipe_information[v]
+        recipe, created = self._cached_get_or_create(Recipe, layer_version=recipe_information['layer_version'],
+                                     file_path=recipe_information['file_path'], pathflags = recipe_information['pathflags'])
 
-        recipe_object.save()
+        update_recipe_obj(recipe)
 
-        return recipe_object
+        built_recipe = None
+        # Create a copy of the recipe for historical puposes and update it
+        for built_layer in self.layer_version_built:
+            if built_layer.layer == recipe_information['layer_version'].layer:
+                built_recipe, c = self._cached_get_or_create(Recipe,
+                        layer_version=built_layer,
+                        file_path=recipe_information['file_path'],
+                        pathflags = recipe_information['pathflags'])
+                update_recipe_obj(built_recipe)
+                break
+
+
+        # If we're in analysis mode then we are wholly responsible for the data
+        # and therefore we return the 'real' recipe rather than the build
+        # history copy of the recipe.
+        if  recipe_information['layer_version'].build is not None and \
+            recipe_information['layer_version'].build.project == \
+                Project.objects.get_default_project():
+            return recipe
+
+        return built_recipe
 
     def get_update_layer_version_object(self, build_obj, layer_obj, layer_version_information):
+        if isinstance(layer_obj, Layer_Version):
+            # We already found our layer version for this build so just
+            # update it with the new build information
+            logger.debug("We found our layer from toaster")
+            layer_obj.local_path = layer_version_information['local_path']
+            layer_obj.save()
+            self.layer_version_objects.append(layer_obj)
+
+            # create a new copy of this layer version as a snapshot for
+            # historical purposes
+            layer_copy, c = Layer_Version.objects.get_or_create(build=build_obj,
+                            layer=layer_obj.layer,
+                            commit=layer_version_information['commit'],
+                            local_path = layer_version_information['local_path'],
+                            )
+            logger.info("created new historical layer version %d", layer_copy.pk)
+
+            self.layer_version_built.append(layer_copy)
+
+            return layer_obj
+
         assert isinstance(build_obj, Build)
         assert isinstance(layer_obj, Layer)
         assert 'branch' in layer_version_information
         assert 'commit' in layer_version_information
         assert 'priority' in layer_version_information
+        assert 'local_path' in layer_version_information
 
-        layer_version_object, created = Layer_Version.objects.get_or_create(
-                                    build = build_obj,
-                                    layer = layer_obj,
-                                    branch = layer_version_information['branch'],
-                                    commit = layer_version_information['commit'],
-                                    priority = layer_version_information['priority']
-                                    )
+        # If we're doing a command line build then associate this new layer with the
+        # project to avoid it 'contaminating' toaster data
+        project = None
+        if build_obj.project == Project.objects.get_default_project():
+            project = build_obj.project
+
+        layer_version_object, _ = Layer_Version.objects.get_or_create(
+                                  build = build_obj,
+                                  layer = layer_obj,
+                                  branch = layer_version_information['branch'],
+                                  commit = layer_version_information['commit'],
+                                  priority = layer_version_information['priority'],
+                                  local_path = layer_version_information['local_path'],
+                                  project=project)
+
+        self.layer_version_objects.append(layer_version_object)
 
         return layer_version_object
 
-    def get_update_layer_object(self, layer_information):
+    def get_update_layer_object(self, layer_information, brbe):
         assert 'name' in layer_information
-        assert 'local_path' in layer_information
         assert 'layer_index_url' in layer_information
 
-        layer_object, created = Layer.objects.get_or_create(
+        if brbe is None:
+            layer_object, _ = Layer.objects.get_or_create(
                                 name=layer_information['name'],
-                                local_path=layer_information['local_path'],
                                 layer_index_url=layer_information['layer_index_url'])
+            return layer_object
+        else:
+            # we are under managed mode; we must match the layer used in the Project Layer
+            br_id, be_id = brbe.split(":")
 
-        return layer_object
+            # find layer by checkout path;
+            from bldcontrol import bbcontroller
+            bc = bbcontroller.getBuildEnvironmentController(pk = be_id)
+
+            # we might have a race condition here, as the project layers may change between the build trigger and the actual build execution
+            # but we can only match on the layer name, so the worst thing can happen is a mis-identification of the layer, not a total failure
+
+            # note that this is different
+            buildrequest = BuildRequest.objects.get(pk = br_id)
+            for brl in buildrequest.brlayer_set.all():
+                localdirname = os.path.join(bc.getGitCloneDirectory(brl.giturl, brl.commit), brl.dirpath)
+                # we get a relative path, unless running in HEAD mode where the path is absolute
+                if not localdirname.startswith("/"):
+                    localdirname = os.path.join(bc.be.sourcedir, localdirname)
+                #logger.debug(1, "Localdirname %s lcal_path %s" % (localdirname, layer_information['local_path']))
+                if localdirname.startswith(layer_information['local_path']):
+                  # If the build request came from toaster this field
+                  # should contain the information from the layer_version
+                  # That created this build request.
+                    if brl.layer_version:
+                        return brl.layer_version
+
+                    # we matched the BRLayer, but we need the layer_version that generated this BR; reverse of the Project.schedule_build()
+                    #logger.debug(1, "Matched %s to BRlayer %s" % (pformat(layer_information["local_path"]), localdirname))
+
+                    for pl in buildrequest.project.projectlayer_set.filter(layercommit__layer__name = brl.name):
+                        if pl.layercommit.layer.vcs_url == brl.giturl :
+                            layer = pl.layercommit.layer
+                            layer.save()
+                            return layer
+
+            raise NotExisting("Unidentified layer %s" % pformat(layer_information))
+
 
     def save_target_file_information(self, build_obj, target_obj, filedata):
         assert isinstance(build_obj, Build)
@@ -206,30 +416,33 @@ class ORMWrapper(object):
         files = filedata['files']
         syms = filedata['syms']
 
-        # we insert directories, ordered by name depth
+        # always create the root directory as a special case;
+        # note that this is never displayed, so the owner, group,
+        # size, permission are irrelevant
+        tf_obj = Target_File.objects.create(target = target_obj,
+                                            path = '/',
+                                            size = 0,
+                                            owner = '',
+                                            group = '',
+                                            permission = '',
+                                            inodetype = Target_File.ITYPE_DIRECTORY)
+        tf_obj.save()
+
+        # insert directories, ordered by name depth
         for d in sorted(dirs, key=lambda x:len(x[-1].split("/"))):
             (user, group, size) = d[1:4]
             permission = d[0][1:]
             path = d[4].lstrip(".")
+
+            # we already created the root directory, so ignore any
+            # entry for it
             if len(path) == 0:
-                # we create the root directory as a special case
-                path = "/"
-                tf_obj = Target_File.objects.create(
-                        target = target_obj,
-                        path = path,
-                        size = size,
-                        inodetype = Target_File.ITYPE_DIRECTORY,
-                        permission = permission,
-                        owner = user,
-                        group = group,
-                        )
-                tf_obj.directory = tf_obj
-                tf_obj.save()
                 continue
+
             parent_path = "/".join(path.split("/")[:len(path.split("/")) - 1])
             if len(parent_path) == 0:
                 parent_path = "/"
-            parent_obj = Target_File.objects.get(target = target_obj, path = parent_path, inodetype = Target_File.ITYPE_DIRECTORY)
+            parent_obj = self._cached_get(Target_File, target = target_obj, path = parent_path, inodetype = Target_File.ITYPE_DIRECTORY)
             tf_obj = Target_File.objects.create(
                         target = target_obj,
                         path = path,
@@ -263,7 +476,7 @@ class ORMWrapper(object):
                         permission = permission,
                         owner = user,
                         group = group)
-            parent_obj = Target_File.objects.get(target = target_obj, path = parent_path, inodetype = Target_File.ITYPE_DIRECTORY)
+            parent_obj = self._cached_get(Target_File, target = target_obj, path = parent_path, inodetype = Target_File.ITYPE_DIRECTORY)
             tf_obj.directory = parent_obj
             tf_obj.save()
 
@@ -289,7 +502,7 @@ class ORMWrapper(object):
 
             try:
                 filetarget_obj = Target_File.objects.get(target = target_obj, path = filetarget_path)
-            except Exception as e:
+            except Target_File.DoesNotExist:
                 # we might have an invalid link; no way to detect this. just set it to None
                 filetarget_obj = None
 
@@ -314,12 +527,17 @@ class ORMWrapper(object):
         errormsg = ""
         for p in packagedict:
             searchname = p
+            if p not in pkgpnmap:
+                logger.warning("Image packages list contains %p, but is"
+                               " missing from all packages list where the"
+                               " metadata comes from. Skipping...", p)
+                continue
+
             if 'OPKGN' in pkgpnmap[p].keys():
                 searchname = pkgpnmap[p]['OPKGN']
 
             packagedict[p]['object'], created = Package.objects.get_or_create( build = build_obj, name = searchname )
-            if created:
-                # package was not build in the current build, but
+            if created or packagedict[p]['object'].size == -1:    # save the data anyway we can, not just if it was not created here; bug [YOCTO #6887]
                 # fill in everything we can from the runtime-reverse package data
                 try:
                     packagedict[p]['object'].recipe = recipes[pkgpnmap[p]['PN']]
@@ -333,11 +551,14 @@ class ORMWrapper(object):
                     packagedict[p]['object'].size = int(pkgpnmap[p]['PKGSIZE'])
 
                 # no files recorded for this package, so save files info
+                    packagefile_objects = []
                     for targetpath in pkgpnmap[p]['FILES_INFO']:
                         targetfilesize = pkgpnmap[p]['FILES_INFO'][targetpath]
-                        Package_File.objects.create( package = packagedict[p]['object'],
+                        packagefile_objects.append(Package_File( package = packagedict[p]['object'],
                             path = targetpath,
-                            size = targetfilesize)
+                            size = targetfilesize))
+                    if len(packagefile_objects):
+                        Package_File.objects.bulk_create(packagefile_objects)
                 except KeyError as e:
                     errormsg += "  stpi: Key error, package %s key %s \n" % ( p, e )
 
@@ -347,6 +568,7 @@ class ORMWrapper(object):
 
             Target_Installed_Package.objects.create(target = target_obj, package = packagedict[p]['object'])
 
+        packagedeps_objs = []
         for p in packagedict:
             for (px,deptype) in packagedict[p]['depends']:
                 if deptype == 'depends':
@@ -354,19 +576,39 @@ class ORMWrapper(object):
                 elif deptype == 'recommends':
                     tdeptype = Package_Dependency.TYPE_TRECOMMENDS
 
-                Package_Dependency.objects.create( package = packagedict[p]['object'],
-                                        depends_on = packagedict[px]['object'],
-                                        dep_type = tdeptype,
-                                        target = target_obj);
+                try:
+                    packagedeps_objs.append(Package_Dependency(
+                        package = packagedict[p]['object'],
+                        depends_on = packagedict[px]['object'],
+                        dep_type = tdeptype,
+                        target = target_obj))
+                except KeyError as e:
+                    logger.warn("Could not add dependency to the package %s "
+                                "because %s is an unknown package", p, px)
 
-        if (len(errormsg) > 0):
-            raise Exception(errormsg)
+        if len(packagedeps_objs) > 0:
+            Package_Dependency.objects.bulk_create(packagedeps_objs)
+        else:
+            logger.info("No package dependencies created")
+
+        if len(errormsg) > 0:
+            logger.warn("buildinfohelper: target_package_info could not identify recipes: \n%s", errormsg)
 
     def save_target_image_file_information(self, target_obj, file_name, file_size):
-        target_image_file = Target_Image_File.objects.create( target = target_obj,
+        Target_Image_File.objects.create( target = target_obj,
                             file_name = file_name,
                             file_size = file_size)
-        target_image_file.save()
+
+    def save_artifact_information(self, build_obj, file_name, file_size):
+        # we skip the image files from other builds
+        if Target_Image_File.objects.filter(file_name = file_name).count() > 0:
+            return
+
+        # do not update artifacts found in other builds
+        if BuildArtifact.objects.filter(file_name = file_name).count() > 0:
+            return
+
+        BuildArtifact.objects.create(build = build_obj, file_name = file_name, file_size = file_size)
 
     def create_logmessage(self, log_information):
         assert 'build' in log_information
@@ -393,7 +635,7 @@ class ORMWrapper(object):
         if 'OPKGN' in package_info.keys():
             pname = package_info['OPKGN']
 
-        bp_object, created = Package.objects.get_or_create( build = build_obj,
+        bp_object, _ = Package.objects.get_or_create( build = build_obj,
                                        name = pname )
 
         bp_object.installed_name = package_info['PKG']
@@ -408,10 +650,13 @@ class ORMWrapper(object):
         bp_object.save()
 
         # save any attached file information
+        packagefile_objects = []
         for path in package_info['FILES_INFO']:
-                fo = Package_File.objects.create( package = bp_object,
+            packagefile_objects.append(Package_File( package = bp_object,
                                         path = path,
-                                        size = package_info['FILES_INFO'][path] )
+                                        size = package_info['FILES_INFO'][path] ))
+        if len(packagefile_objects):
+            Package_File.objects.bulk_create(packagefile_objects)
 
         def _po_byname(p):
             pkg, created = Package.objects.get_or_create(build = build_obj, name = p)
@@ -420,39 +665,44 @@ class ORMWrapper(object):
                 pkg.save()
             return pkg
 
+        packagedeps_objs = []
         # save soft dependency information
         if 'RDEPENDS' in package_info and package_info['RDEPENDS']:
             for p in bb.utils.explode_deps(package_info['RDEPENDS']):
-                Package_Dependency.objects.get_or_create( package = bp_object,
-                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RDEPENDS)
+                packagedeps_objs.append(Package_Dependency(  package = bp_object,
+                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RDEPENDS))
         if 'RPROVIDES' in package_info and package_info['RPROVIDES']:
             for p in bb.utils.explode_deps(package_info['RPROVIDES']):
-                Package_Dependency.objects.get_or_create( package = bp_object,
-                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RPROVIDES)
+                packagedeps_objs.append(Package_Dependency(  package = bp_object,
+                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RPROVIDES))
         if 'RRECOMMENDS' in package_info and package_info['RRECOMMENDS']:
             for p in bb.utils.explode_deps(package_info['RRECOMMENDS']):
-                Package_Dependency.objects.get_or_create( package = bp_object,
-                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RRECOMMENDS)
+                packagedeps_objs.append(Package_Dependency(  package = bp_object,
+                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RRECOMMENDS))
         if 'RSUGGESTS' in package_info and package_info['RSUGGESTS']:
             for p in bb.utils.explode_deps(package_info['RSUGGESTS']):
-                Package_Dependency.objects.get_or_create( package = bp_object,
-                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RSUGGESTS)
+                packagedeps_objs.append(Package_Dependency(  package = bp_object,
+                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RSUGGESTS))
         if 'RREPLACES' in package_info and package_info['RREPLACES']:
             for p in bb.utils.explode_deps(package_info['RREPLACES']):
-                Package_Dependency.objects.get_or_create( package = bp_object,
-                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RREPLACES)
+                packagedeps_objs.append(Package_Dependency(  package = bp_object,
+                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RREPLACES))
         if 'RCONFLICTS' in package_info and package_info['RCONFLICTS']:
             for p in bb.utils.explode_deps(package_info['RCONFLICTS']):
-                Package_Dependency.objects.get_or_create( package = bp_object,
-                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RCONFLICTS)
+                packagedeps_objs.append(Package_Dependency(  package = bp_object,
+                    depends_on = _po_byname(p), dep_type = Package_Dependency.TYPE_RCONFLICTS))
+
+        if len(packagedeps_objs) > 0:
+            Package_Dependency.objects.bulk_create(packagedeps_objs)
 
         return bp_object
 
     def save_build_variables(self, build_obj, vardump):
         assert isinstance(build_obj, Build)
 
+        helptext_objects = []
         for k in vardump:
-            desc = vardump[k]['doc'];
+            desc = vardump[k]['doc']
             if desc is None:
                 var_words = [word for word in k.split('_')]
                 root_var = "_".join([word for word in var_words if word.isupper()])
@@ -460,25 +710,45 @@ class ORMWrapper(object):
                     desc = vardump[root_var]['doc']
             if desc is None:
                 desc = ''
-            if desc:
-                helptext_obj = HelpText.objects.create(build=build_obj,
+            if len(desc):
+                helptext_objects.append(HelpText(build=build_obj,
                     area=HelpText.VARIABLE,
                     key=k,
-                    text=desc)
+                    text=desc))
             if not bool(vardump[k]['func']):
-                value = vardump[k]['v'];
+                value = vardump[k]['v']
                 if value is None:
                     value = ''
                 variable_obj = Variable.objects.create( build = build_obj,
                     variable_name = k,
                     variable_value = value,
                     description = desc)
+
+                varhist_objects = []
                 for vh in vardump[k]['history']:
                     if not 'documentation.conf' in vh['file']:
-                        VariableHistory.objects.create( variable = variable_obj,
+                        varhist_objects.append(VariableHistory( variable = variable_obj,
                                 file_name = vh['file'],
                                 line_number = vh['line'],
-                                operation = vh['op'])
+                                operation = vh['op']))
+                if len(varhist_objects):
+                    VariableHistory.objects.bulk_create(varhist_objects)
+
+        HelpText.objects.bulk_create(helptext_objects)
+
+
+class MockEvent(object):
+    """ This object is used to create event, for which normal event-processing methods can
+        be used, out of data that is not coming via an actual event
+    """
+    def __init__(self):
+        self.msg = None
+        self.levelno = None
+        self.taskname = None
+        self.taskhash = None
+        self.pathname = None
+        self.lineno = None
+
 
 class BuildInfoHelper(object):
     """ This class gathers the build information from the server and sends it
@@ -487,34 +757,43 @@ class BuildInfoHelper(object):
         Keeps in memory all data that needs matching before writing it to the database
     """
 
+    # pylint: disable=protected-access
+    # the code will look into the protected variables of the event; no easy way around this
+    # pylint: disable=bad-continuation
+    # we do not follow the python conventions for continuation indentation due to long lines here
+
     def __init__(self, server, has_build_history = False):
-        self._configure_django()
         self.internal_state = {}
         self.internal_state['taskdata'] = {}
+        self.internal_state['targets'] = []
         self.task_order = 0
+        self.autocommit_step = 1
         self.server = server
+        # we use manual transactions if the database doesn't autocommit on us
+        if not connection.features.autocommits_when_autocommit_is_off:
+            transaction.set_autocommit(False)
         self.orm_wrapper = ORMWrapper()
         self.has_build_history = has_build_history
         self.tmp_dir = self.server.runCommand(["getVariable", "TMPDIR"])[0]
+        self.brbe    = self.server.runCommand(["getVariable", "TOASTER_BRBE"])[0]
+        self.project = self.server.runCommand(["getVariable", "TOASTER_PROJECT"])[0]
+        logger.debug(1, "buildinfohelper: Build info helper inited %s" % vars(self))
 
-    def _configure_django(self):
-        # Add toaster to sys path for importing modules
-        sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'toaster'))
 
     ###################
     ## methods to convert event/external info into objects that the ORM layer uses
 
 
-    def _get_build_information(self):
+    def _get_build_information(self, build_log_path):
         build_info = {}
         # Generate an identifier for each new build
 
         build_info['machine'] = self.server.runCommand(["getVariable", "MACHINE"])[0]
         build_info['distro'] = self.server.runCommand(["getVariable", "DISTRO"])[0]
         build_info['distro_version'] = self.server.runCommand(["getVariable", "DISTRO_VERSION"])[0]
-        build_info['started_on'] = datetime.datetime.now()
-        build_info['completed_on'] = datetime.datetime.now()
-        build_info['cooker_log_path'] = self.server.runCommand(["getVariable", "BB_CONSOLELOG"])[0]
+        build_info['started_on'] = timezone.now()
+        build_info['completed_on'] = timezone.now()
+        build_info['cooker_log_path'] = build_log_path
         build_info['build_name'] = self.server.runCommand(["getVariable", "BUILDNAME"])[0]
         build_info['bitbake_version'] = self.server.runCommand(["getVariable", "BB_VERSION"])[0]
 
@@ -539,27 +818,73 @@ class BuildInfoHelper(object):
         assert path.startswith("/")
         assert 'build' in self.internal_state
 
-        def _slkey(layer_version):
-            assert isinstance(layer_version, Layer_Version)
-            return len(layer_version.layer.local_path)
+        if self.brbe is None:
+            def _slkey_interactive(layer_version):
+                assert isinstance(layer_version, Layer_Version)
+                return len(layer_version.local_path)
 
-        # Heuristics: we always match recipe to the deepest layer path that
-        # we can match to the recipe file path
-        for bl in sorted(Layer_Version.objects.filter(build = self.internal_state['build']), reverse=True, key=_slkey):
-            if (path.startswith(bl.layer.local_path)):
-                return bl
+            # Heuristics: we always match recipe to the deepest layer path in the discovered layers
+            for lvo in sorted(self.orm_wrapper.layer_version_objects, reverse=True, key=_slkey_interactive):
+                # we can match to the recipe file path
+                if path.startswith(lvo.local_path):
+                    return lvo
 
-        #TODO: if we get here, we didn't read layers correctly
-        assert False
-        return None
+        else:
+            br_id, be_id = self.brbe.split(":")
+            from bldcontrol.bbcontroller import getBuildEnvironmentController
+            bc = getBuildEnvironmentController(pk = be_id)
+
+            def _slkey_managed(layer_version):
+                return len(bc.getGitCloneDirectory(layer_version.giturl, layer_version.commit) + layer_version.dirpath)
+
+            # Heuristics: we match the path to where the layers have been checked out
+            for brl in sorted(BuildRequest.objects.get(pk = br_id).brlayer_set.all(), reverse = True, key = _slkey_managed):
+                localdirname = os.path.join(bc.getGitCloneDirectory(brl.giturl, brl.commit), brl.dirpath)
+                # we get a relative path, unless running in HEAD mode where the path is absolute
+                if not localdirname.startswith("/"):
+                    localdirname = os.path.join(bc.be.sourcedir, localdirname)
+                if path.startswith(localdirname):
+                    # If the build request came from toaster this field
+                    # should contain the information from the layer_version
+                    # That created this build request.
+                    if brl.layer_version:
+                        return brl.layer_version
+
+                    #logger.warn("-- managed: matched path %s with layer %s " % (path, localdirname))
+                    # we matched the BRLayer, but we need the layer_version that generated this br
+
+                    for lvo in self.orm_wrapper.layer_version_objects:
+                        if brl.name == lvo.layer.name:
+                            return lvo
+
+        #if we get here, we didn't read layers correctly; dump whatever information we have on the error log
+        logger.warn("Could not match layer version for recipe path %s : %s", path, self.orm_wrapper.layer_version_objects)
+
+        #mockup the new layer
+        unknown_layer, _ = Layer.objects.get_or_create(name="Unidentified layer", layer_index_url="")
+        unknown_layer_version_obj, _ = Layer_Version.objects.get_or_create(layer = unknown_layer, build = self.internal_state['build'])
+
+        # append it so we don't run into this error again and again
+        self.orm_wrapper.layer_version_objects.append(unknown_layer_version_obj)
+
+        return unknown_layer_version_obj
 
     def _get_recipe_information_from_taskfile(self, taskfile):
         localfilepath = taskfile.split(":")[-1]
+        filepath_flags = ":".join(sorted(taskfile.split(":")[:-1]))
         layer_version_obj = self._get_layer_version_for_path(localfilepath)
+
+
 
         recipe_info = {}
         recipe_info['layer_version'] = layer_version_obj
-        recipe_info['file_path'] = taskfile
+        recipe_info['file_path'] = localfilepath
+        recipe_info['pathflags'] = filepath_flags
+
+        if recipe_info['file_path'].startswith(recipe_info['layer_version'].local_path):
+            recipe_info['file_path'] = recipe_info['file_path'][len(recipe_info['layer_version'].local_path):].lstrip("/")
+        else:
+            raise RuntimeError("Recipe file path %s is not under layer version at %s" % (recipe_info['file_path'], recipe_info['layer_version'].local_path))
 
         return recipe_info
 
@@ -584,62 +909,100 @@ class BuildInfoHelper(object):
 
         return build_stats_path
 
-    def _remove_redundant(self, string):
-        ret = []
-        for i in string.split():
-            if i not in ret:
-                ret.append(i)
-        return " ".join(sorted(ret))
-
 
     ################################
     ## external available methods to store information
+    @staticmethod
+    def _get_data_from_event(event):
+        evdata = None
+        if '_localdata' in vars(event):
+            evdata = event._localdata
+        elif 'data' in vars(event):
+            evdata = event.data
+        else:
+            raise Exception("Event with neither _localdata or data properties")
+        return evdata
 
     def store_layer_info(self, event):
-        assert '_localdata' in vars(event)
-        layerinfos = event._localdata
+        layerinfos = BuildInfoHelper._get_data_from_event(event)
         self.internal_state['lvs'] = {}
         for layer in layerinfos:
-            self.internal_state['lvs'][self.orm_wrapper.get_update_layer_object(layerinfos[layer])] = layerinfos[layer]['version']
+            try:
+                self.internal_state['lvs'][self.orm_wrapper.get_update_layer_object(layerinfos[layer], self.brbe)] = layerinfos[layer]['version']
+                self.internal_state['lvs'][self.orm_wrapper.get_update_layer_object(layerinfos[layer], self.brbe)]['local_path'] = layerinfos[layer]['local_path']
+            except NotExisting as nee:
+                logger.warn("buildinfohelper: cannot identify layer exception:%s ", nee)
 
 
-    def store_started_build(self, event):
+    def store_started_build(self, event, build_log_path):
         assert '_pkgs' in vars(event)
-        build_information = self._get_build_information()
+        build_information = self._get_build_information(build_log_path)
 
-        brbe = self.server.runCommand(["getVariable", "TOASTER_BRBE"])[0]
-
-        build_obj = self.orm_wrapper.create_build_object(build_information, brbe)
+        build_obj = self.orm_wrapper.create_build_object(build_information, self.brbe, self.project)
 
         self.internal_state['build'] = build_obj
 
         # save layer version information for this build
-        for layer_obj in self.internal_state['lvs']:
-            self.orm_wrapper.get_update_layer_version_object(build_obj, layer_obj, self.internal_state['lvs'][layer_obj])
+        if not 'lvs' in self.internal_state:
+            logger.error("Layer version information not found; Check if the bitbake server was configured to inherit toaster.bbclass.")
+        else:
+            for layer_obj in self.internal_state['lvs']:
+                self.orm_wrapper.get_update_layer_version_object(build_obj, layer_obj, self.internal_state['lvs'][layer_obj])
 
-        del self.internal_state['lvs']
+            del self.internal_state['lvs']
 
         # create target information
         target_information = {}
         target_information['targets'] = event._pkgs
         target_information['build'] = build_obj
 
-        self.internal_state['targets'] = self.orm_wrapper.create_target_objects(target_information)
+        self.internal_state['targets'] = self.orm_wrapper.get_or_create_targets(target_information)
 
         # Save build configuration
-        self.orm_wrapper.save_build_variables(build_obj, self.server.runCommand(["getAllKeysWithFlags", ["doc", "func"]])[0])
+        data = self.server.runCommand(["getAllKeysWithFlags", ["doc", "func"]])[0]
 
-        return brbe
+        # convert the paths from absolute to relative to either the build directory or layer checkouts
+        path_prefixes = []
+
+        if self.brbe is not None:
+            _, be_id = self.brbe.split(":")
+            be = BuildEnvironment.objects.get(pk = be_id)
+            path_prefixes.append(be.builddir)
+
+        for layer in sorted(self.orm_wrapper.layer_version_objects, key = lambda x:len(x.local_path), reverse=True):
+            path_prefixes.append(layer.local_path)
+
+        # we strip the prefixes
+        for k in data:
+            if not bool(data[k]['func']):
+                for vh in data[k]['history']:
+                    if not 'documentation.conf' in vh['file']:
+                        abs_file_name = vh['file']
+                        for pp in path_prefixes:
+                            if abs_file_name.startswith(pp + "/"):
+                                vh['file']=abs_file_name[len(pp + "/"):]
+                                break
+
+        # save the variables
+        self.orm_wrapper.save_build_variables(build_obj, data)
+
+        return self.brbe
 
 
     def update_target_image_file(self, event):
-        image_fstypes = self.server.runCommand(["getVariable", "IMAGE_FSTYPES"])[0]
+        evdata = BuildInfoHelper._get_data_from_event(event)
+
         for t in self.internal_state['targets']:
             if t.is_image == True:
-                output_files = list(event._localdata.viewkeys())
+                output_files = list(evdata.viewkeys())
                 for output in output_files:
-                    if t.target in output and output.split('.rootfs.')[1] in image_fstypes:
-                        self.orm_wrapper.save_target_image_file_information(t, output, event._localdata[output])
+                    if t.target in output and 'rootfs' in output and not output.endswith(".manifest"):
+                        self.orm_wrapper.save_target_image_file_information(t, output, evdata[output])
+
+    def update_artifact_image_file(self, event):
+        evdata = BuildInfoHelper._get_data_from_event(event)
+        for artifact_path in evdata.keys():
+            self.orm_wrapper.save_artifact_information(self.internal_state['build'], artifact_path, evdata[artifact_path])
 
     def update_build_information(self, event, errors, warnings, taskfailures):
         if 'build' in self.internal_state:
@@ -647,12 +1010,12 @@ class BuildInfoHelper(object):
 
 
     def store_license_manifest_path(self, event):
-        deploy_dir = event._localdata['deploy_dir']
-        image_name =  event._localdata['image_name']
-        path = deploy_dir + "/licenses/" + image_name + "/"
+        deploy_dir = BuildInfoHelper._get_data_from_event(event)['deploy_dir']
+        image_name = BuildInfoHelper._get_data_from_event(event)['image_name']
+        path = deploy_dir + "/licenses/" + image_name + "/license.manifest"
         for target in self.internal_state['targets']:
             if target.target in image_name:
-                self.orm_wrapper.update_target_object(target, path)
+                self.orm_wrapper.update_target_set_license_manifest(target, path)
 
 
     def store_started_task(self, event):
@@ -688,7 +1051,7 @@ class BuildInfoHelper(object):
             self.task_order += 1
             task_information['order'] = self.task_order
 
-        task_obj = self.orm_wrapper.get_update_task_object(task_information)
+        self.orm_wrapper.get_update_task_object(task_information)
 
         self.internal_state['taskdata'][identifier] = {
                         'outcome': task_information['outcome'],
@@ -696,14 +1059,21 @@ class BuildInfoHelper(object):
 
 
     def store_tasks_stats(self, event):
-        for (taskfile, taskname, taskstats, recipename) in event._localdata:
+        for (taskfile, taskname, taskstats, recipename) in BuildInfoHelper._get_data_from_event(event):
             localfilepath = taskfile.split(":")[-1]
             assert localfilepath.startswith("/")
 
             recipe_information = self._get_recipe_information_from_taskfile(taskfile)
-            recipe_object = Recipe.objects.get(layer_version = recipe_information['layer_version'],
+            try:
+                if recipe_information['file_path'].startswith(recipe_information['layer_version'].local_path):
+                    recipe_information['file_path'] = recipe_information['file_path'][len(recipe_information['layer_version'].local_path):].lstrip("/")
+
+                recipe_object = Recipe.objects.get(layer_version = recipe_information['layer_version'],
                             file_path__endswith = recipe_information['file_path'],
                             name = recipename)
+            except Recipe.DoesNotExist:
+                logger.error("Could not find recipe for recipe_information %s name %s" , pformat(recipe_information), recipename)
+                raise
 
             task_information = {}
             task_information['build'] = self.internal_state['build']
@@ -711,7 +1081,9 @@ class BuildInfoHelper(object):
             task_information['task_name'] = taskname
             task_information['cpu_usage'] = taskstats['cpu_usage']
             task_information['disk_io'] = taskstats['disk_io']
-            task_obj = self.orm_wrapper.get_update_task_object(task_information, True)  # must exist
+            if 'elapsed_time' in taskstats:
+                task_information['elapsed_time'] = taskstats['elapsed_time']
+            self.orm_wrapper.get_update_task_object(task_information)
 
     def update_and_store_task(self, event):
         assert 'taskfile' in vars(event)
@@ -764,22 +1136,28 @@ class BuildInfoHelper(object):
                 task_information['outcome'] = Task.OUTCOME_FAILED
                 del self.internal_state['taskdata'][identifier]
 
+        if not connection.features.autocommits_when_autocommit_is_off:
+            # we force a sync point here, to get the progress bar to show
+            if self.autocommit_step % 3 == 0:
+                transaction.set_autocommit(True)
+                transaction.set_autocommit(False)
+            self.autocommit_step += 1
+
         self.orm_wrapper.get_update_task_object(task_information, True) # must exist
 
 
     def store_missed_state_tasks(self, event):
-        for (fn, taskname, taskhash, sstatefile) in event._localdata['missed']:
+        for (fn, taskname, taskhash, sstatefile) in BuildInfoHelper._get_data_from_event(event)['missed']:
 
-            identifier = fn + taskname + "_setscene"
+            # identifier = fn + taskname + "_setscene"
             recipe_information = self._get_recipe_information_from_taskfile(fn)
             recipe = self.orm_wrapper.get_update_recipe_object(recipe_information)
-            class MockEvent: pass
             mevent = MockEvent()
             mevent.taskname = taskname
             mevent.taskhash = taskhash
             task_information = self._get_task_information(mevent,recipe)
 
-            task_information['start_time'] = datetime.datetime.now()
+            task_information['start_time'] = timezone.now()
             task_information['outcome'] = Task.OUTCOME_NA
             task_information['sstate_checksum'] = taskhash
             task_information['sstate_result'] = Task.SSTATE_MISS
@@ -787,12 +1165,11 @@ class BuildInfoHelper(object):
 
             self.orm_wrapper.get_update_task_object(task_information)
 
-        for (fn, taskname, taskhash, sstatefile) in event._localdata['found']:
+        for (fn, taskname, taskhash, sstatefile) in BuildInfoHelper._get_data_from_event(event)['found']:
 
-            identifier = fn + taskname + "_setscene"
+            # identifier = fn + taskname + "_setscene"
             recipe_information = self._get_recipe_information_from_taskfile(fn)
             recipe = self.orm_wrapper.get_update_recipe_object(recipe_information)
-            class MockEvent: pass
             mevent = MockEvent()
             mevent.taskname = taskname
             mevent.taskhash = taskhash
@@ -804,19 +1181,25 @@ class BuildInfoHelper(object):
 
 
     def store_target_package_data(self, event):
-        assert '_localdata' in vars(event)
         # for all image targets
         for target in self.internal_state['targets']:
             if target.is_image:
+                pkgdata = BuildInfoHelper._get_data_from_event(event)['pkgdata']
+                imgdata = BuildInfoHelper._get_data_from_event(event)['imgdata'][target.target]
+                filedata = BuildInfoHelper._get_data_from_event(event)['filedata'][target.target]
+
                 try:
-                    pkgdata = event._localdata['pkgdata']
-                    imgdata = event._localdata['imgdata'][target.target]
                     self.orm_wrapper.save_target_package_information(self.internal_state['build'], target, imgdata, pkgdata, self.internal_state['recipes'])
-                    filedata = event._localdata['filedata'][target.target]
+                except KeyError as e:
+                    logger.warn("KeyError in save_target_package_information"
+                                "%s ", e)
+
+                try:
                     self.orm_wrapper.save_target_file_information(self.internal_state['build'], target, filedata)
-                except KeyError:
-                    # we must have not got the data for this image, nothing to save
-                    pass
+                except KeyError as e:
+                    logger.warn("KeyError in save_target_file_information"
+                                "%s ", e)
+
 
 
 
@@ -831,7 +1214,7 @@ class BuildInfoHelper(object):
         # save layer version priorities
         if 'layer-priorities' in event._depgraph.keys():
             for lv in event._depgraph['layer-priorities']:
-                (name, path, regexp, priority) = lv
+                (_, path, _, priority) = lv
                 layer_version_obj = self._get_layer_version_for_path(path[1:]) # paths start with a ^
                 assert layer_version_obj is not None
                 layer_version_obj.priority = priority
@@ -841,22 +1224,45 @@ class BuildInfoHelper(object):
         self.internal_state['recipes'] = {}
         for pn in event._depgraph['pn']:
 
-            file_name = event._depgraph['pn'][pn]['filename']
-            layer_version_obj = self._get_layer_version_for_path(file_name.split(":")[-1])
+            file_name = event._depgraph['pn'][pn]['filename'].split(":")[-1]
+            pathflags = ":".join(sorted(event._depgraph['pn'][pn]['filename'].split(":")[:-1]))
+            layer_version_obj = self._get_layer_version_for_path(file_name)
 
             assert layer_version_obj is not None
 
             recipe_info = {}
             recipe_info['name'] = pn
-            recipe_info['version'] = event._depgraph['pn'][pn]['version'].lstrip(":")
             recipe_info['layer_version'] = layer_version_obj
-            recipe_info['summary'] = event._depgraph['pn'][pn]['summary']
-            recipe_info['license'] = event._depgraph['pn'][pn]['license']
-            recipe_info['description'] = event._depgraph['pn'][pn]['description']
-            recipe_info['section'] = event._depgraph['pn'][pn]['section']
-            recipe_info['homepage'] = event._depgraph['pn'][pn]['homepage']
-            recipe_info['bugtracker'] = event._depgraph['pn'][pn]['bugtracker']
+
+            if 'version' in event._depgraph['pn'][pn]:
+                recipe_info['version'] = event._depgraph['pn'][pn]['version'].lstrip(":")
+
+            if 'summary' in event._depgraph['pn'][pn]:
+                recipe_info['summary'] = event._depgraph['pn'][pn]['summary']
+
+            if 'license' in event._depgraph['pn'][pn]:
+                recipe_info['license'] = event._depgraph['pn'][pn]['license']
+
+            if 'description' in event._depgraph['pn'][pn]:
+                recipe_info['description'] = event._depgraph['pn'][pn]['description']
+
+            if 'section' in event._depgraph['pn'][pn]:
+                recipe_info['section'] = event._depgraph['pn'][pn]['section']
+
+            if 'homepage' in event._depgraph['pn'][pn]:
+                recipe_info['homepage'] = event._depgraph['pn'][pn]['homepage']
+
+            if 'bugtracker' in event._depgraph['pn'][pn]:
+                recipe_info['bugtracker'] = event._depgraph['pn'][pn]['bugtracker']
+
             recipe_info['file_path'] = file_name
+            recipe_info['pathflags'] = pathflags
+
+            if recipe_info['file_path'].startswith(recipe_info['layer_version'].local_path):
+                recipe_info['file_path'] = recipe_info['file_path'][len(recipe_info['layer_version'].local_path):].lstrip("/")
+            else:
+                raise RuntimeError("Recipe file path %s is not under layer version at %s" % (recipe_info['file_path'], recipe_info['layer_version'].local_path))
+
             recipe = self.orm_wrapper.get_update_recipe_object(recipe_info)
             recipe.is_image = False
             if 'inherits' in event._depgraph['pn'][pn].keys():
@@ -877,20 +1283,22 @@ class BuildInfoHelper(object):
 
         # save recipe dependency
         # buildtime
+        recipedeps_objects = []
         for recipe in event._depgraph['depends']:
             try:
                 target = self.internal_state['recipes'][recipe]
                 for dep in event._depgraph['depends'][recipe]:
                     dependency = self.internal_state['recipes'][dep]
-                    Recipe_Dependency.objects.get_or_create( recipe = target,
-                            depends_on = dependency, dep_type = Recipe_Dependency.TYPE_DEPENDS)
+                    recipedeps_objects.append(Recipe_Dependency( recipe = target,
+                            depends_on = dependency, dep_type = Recipe_Dependency.TYPE_DEPENDS))
             except KeyError as e:
                 if e not in assume_provided and not str(e).startswith("virtual/"):
                     errormsg += "  stpd: KeyError saving recipe dependency for %s, %s \n" % (recipe, e)
+        Recipe_Dependency.objects.bulk_create(recipedeps_objects)
 
         # save all task information
         def _save_a_task(taskdesc):
-            spec = re.split(r'\.', taskdesc);
+            spec = re.split(r'\.', taskdesc)
             pn = ".".join(spec[0:-1])
             taskname = spec[-1]
             e = event
@@ -907,6 +1315,7 @@ class BuildInfoHelper(object):
             tasks[taskdesc] = _save_a_task(taskdesc)
 
         # create dependencies between tasks
+        taskdeps_objects = []
         for taskdesc in event._depgraph['tdepends']:
             target = tasks[taskdesc]
             for taskdep in event._depgraph['tdepends'][taskdesc]:
@@ -915,73 +1324,113 @@ class BuildInfoHelper(object):
                     dep = _save_a_task(taskdep)
                 else:
                     dep = tasks[taskdep]
-                Task_Dependency.objects.get_or_create( task = target, depends_on = dep )
+                taskdeps_objects.append(Task_Dependency( task = target, depends_on = dep ))
+        Task_Dependency.objects.bulk_create(taskdeps_objects)
 
-        if (len(errormsg) > 0):
-            raise Exception(errormsg)
+        if len(errormsg) > 0:
+            logger.warn("buildinfohelper: dependency info not identify recipes: \n%s", errormsg)
 
 
     def store_build_package_information(self, event):
-        assert '_localdata' in vars(event)
-        package_info = event._localdata
+        package_info = BuildInfoHelper._get_data_from_event(event)
         self.orm_wrapper.save_build_package_information(self.internal_state['build'],
                             package_info,
                             self.internal_state['recipes'],
                             )
 
-    def store_build_done(self, br_id, be_id):
-        from bldcontrol.models import BuildEnvironment, BuildRequest
+    def _store_build_done(self, errorcode):
+        logger.info("Build exited with errorcode %d", errorcode)
+        br_id, be_id = self.brbe.split(":")
         be = BuildEnvironment.objects.get(pk = be_id)
         be.lock = BuildEnvironment.LOCK_LOCK
         be.save()
         br = BuildRequest.objects.get(pk = br_id)
-        br.state = BuildRequest.REQ_COMPLETED
-        br.build = self.internal_state['build']
+        if errorcode == 0:
+            # request archival of the project artifacts
+            br.state = BuildRequest.REQ_ARCHIVE
+        else:
+            br.state = BuildRequest.REQ_FAILED
         br.save()
 
-    def _store_log_information(self, level, text):
-        log_information = {}
-        log_information['build'] = self.internal_state['build']
-        log_information['level'] = level
-        log_information['message'] = text
-        self.orm_wrapper.create_logmessage(log_information)
-
-    def store_log_info(self, text):
-        self._store_log_information(LogMessage.INFO, text)
-
-    def store_log_warn(self, text):
-        self._store_log_information(LogMessage.WARNING, text)
 
     def store_log_error(self, text):
-        self._store_log_information(LogMessage.ERROR, text)
+        mockevent = MockEvent()
+        mockevent.levelno = formatter.ERROR
+        mockevent.msg = text
+        mockevent.pathname = '-- None'
+        mockevent.lineno = LogMessage.ERROR
+        self.store_log_event(mockevent)
+
+    def store_log_exception(self, text, backtrace = ""):
+        mockevent = MockEvent()
+        mockevent.levelno = -1
+        mockevent.msg = text
+        mockevent.pathname = backtrace
+        mockevent.lineno = -1
+        self.store_log_event(mockevent)
+
 
     def store_log_event(self, event):
-        if 'build' in self.internal_state and 'backlog' in self.internal_state:
-            if len(self.internal_state['backlog']):
-                tempevent = self.internal_state['backlog'].pop()
-                print "Saving stored event ", tempevent
-                self.store_log_event(tempevent)
-            else:
-                del self.internal_state['backlog']
-
-        if event.levelno < format.WARNING:
+        if event.levelno < formatter.WARNING:
             return
+
+        if 'args' in vars(event):
+            event.msg = event.msg % event.args
 
         if not 'build' in self.internal_state:
-            print "Save event for later"
-            if not 'backlog' in self.internal_state:
-                self.internal_state['backlog'] = []
-            self.internal_state['backlog'].append(event)
+            if self.brbe is None:
+                if not 'backlog' in self.internal_state:
+                    self.internal_state['backlog'] = []
+                self.internal_state['backlog'].append(event)
+                return
+            else:   # we're under Toaster control, the build is already created
+                br, _ = self.brbe.split(":")
+                buildrequest = BuildRequest.objects.get(pk = br)
+                self.internal_state['build'] = buildrequest.build
 
-            return
+        if 'build' in self.internal_state and 'backlog' in self.internal_state:
+            # if we have a backlog of events, do our best to save them here
+            if len(self.internal_state['backlog']):
+                tempevent = self.internal_state['backlog'].pop()
+                logger.debug(1, "buildinfohelper: Saving stored event %s " % tempevent)
+                self.store_log_event(tempevent)
+            else:
+                logger.info("buildinfohelper: All events saved")
+                del self.internal_state['backlog']
+
         log_information = {}
         log_information['build'] = self.internal_state['build']
-        if event.levelno >= format.ERROR:
+        if event.levelno == formatter.CRITICAL:
+            log_information['level'] = LogMessage.CRITICAL
+        elif event.levelno == formatter.ERROR:
             log_information['level'] = LogMessage.ERROR
-        elif event.levelno == format.WARNING:
+        elif event.levelno == formatter.WARNING:
             log_information['level'] = LogMessage.WARNING
+        elif event.levelno == -2:   # toaster self-logging
+            log_information['level'] = -2
+        else:
+            log_information['level'] = LogMessage.INFO
+
         log_information['message'] = event.msg
         log_information['pathname'] = event.pathname
         log_information['lineno'] = event.lineno
+        logger.info("Logging error 2: %s", log_information)
+
         self.orm_wrapper.create_logmessage(log_information)
 
+    def close(self, errorcode):
+        if self.brbe is not None:
+            self._store_build_done(errorcode)
+
+        if 'backlog' in self.internal_state:
+            if 'build' in self.internal_state:
+                # we save missed events in the database for the current build
+                tempevent = self.internal_state['backlog'].pop()
+                self.store_log_event(tempevent)
+            else:
+                # we have no build, and we still have events; something amazingly wrong happend
+                for event in self.internal_state['backlog']:
+                    logger.error("UNSAVED log: %s", event.msg)
+
+        if not connection.features.autocommits_when_autocommit_is_off:
+            transaction.set_autocommit(True)
