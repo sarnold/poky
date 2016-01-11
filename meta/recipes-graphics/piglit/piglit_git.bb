@@ -9,6 +9,7 @@ SRC_URI = "git://anongit.freedesktop.org/piglit \
 SRCREV = "126c7d049b8f32e541625d5a35fbc5f5e4e7fbf8"
 # (when PV goes above 1.0 remove the trailing r)
 PV = "1.0+gitr${SRCPV}"
+PE = "1"
 
 S = "${WORKDIR}/git"
 
