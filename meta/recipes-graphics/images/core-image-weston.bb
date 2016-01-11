@@ -7,5 +7,6 @@ LICENSE = "MIT"
 inherit core-image distro_features_check
 
 REQUIRED_DISTRO_FEATURES = "wayland"
+CONFLICT_DISTRO_FEATURES = "x11"
 
 CORE_IMAGE_BASE_INSTALL += "weston weston-init weston-examples gtk+3-demo clutter-1.0-examples"
