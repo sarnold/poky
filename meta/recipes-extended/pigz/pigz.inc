@@ -7,11 +7,11 @@ HOMEPAGE = "http://zlib.net/pigz/"
 SECTION = "console/utils"
 LICENSE = "Zlib & Apache-2.0"
 
-SRC_URI = "http://zlib.net/${BPN}/${BP}.tar.gz"
-
 PROVIDES_class-native += "gzip-native"
 
 DEPENDS = "zlib"
+
+EXTRA_OEMAKE = "-e MAKEFLAGS="
 
 inherit update-alternatives
 

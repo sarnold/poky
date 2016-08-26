@@ -5,20 +5,22 @@
 SUMMARY = "Linux Standard Base (LSB)"
 DESCRIPTION = "Packages required to satisfy the Linux Standard Base (LSB) specification"
 PR = "r10"
-LICENSE = "MIT"
 
 inherit packagegroup distro_features_check
 
 # The libxt, libxtst and others require x11 in DISTRO_FEATURES
 REQUIRED_DISTRO_FEATURES = "x11"
 
+# libglu needs virtual/libgl, which requires opengl in DISTRO_FEATURES
+REQUIRED_DISTRO_FEATURES += "opengl"
+
 #
 # We will skip parsing this packagegeoup for non-glibc systems
 #
 python __anonymous () {
-    if d.getVar('TCLIBC', True) != "glibc":
+    if d.getVar('TCLIBC') != "glibc":
         raise bb.parse.SkipPackage("incompatible with %s C library" %
-                                   d.getVar('TCLIBC', True))
+                                   d.getVar('TCLIBC'))
 }
 
 PACKAGES = "\
@@ -64,12 +66,10 @@ RDEPENDS_packagegroup-core-sys-extended = "\
     mc-fish \
     mc-helpers \
     mc-helpers-perl \
-    mc-helpers-python \
     mdadm \
     minicom \
     neon \
     parted \
-    ${PTH} \
     quota \
     screen \
     setserial \
@@ -153,7 +153,6 @@ RDEPENDS_packagegroup-core-lsb-core = "\
     localedef \
     lsb \
     m4 \
-    mailx \
     make \
     man \
     man-pages \
@@ -177,7 +176,6 @@ RDEPENDS_packagegroup-core-lsb-core = "\
     ncurses \
     zlib \
     nspr \
-    libpng12 \
     nss \
 "
 
@@ -202,29 +200,6 @@ RDEPENDS_packagegroup-core-lsb-python = "\
     python-misc \
 "
 
-def get_libqt3(d):
-    if 'linuxstdbase' in d.getVar('DISTROOVERRIDES', False) or "":
-        if 'qt3' in d.getVar('BBFILE_COLLECTIONS', False) or "":
-            return 'libqt-mt3'
-
-        bb.warn('The meta-qt3 layer should be added, this layer provides Qt 3.x' \
-                'libraries. Its intended use is for passing LSB tests as Qt3 is' \
-                'a requirement for LSB.')
-    return ''
-
-QT4PKGS = " \
-    libqtcore4 \
-    libqtgui4 \
-    libqtsql4 \
-    libqtsvg4 \
-    libqtxml4 \
-    libqtnetwork4 \
-    qt4-plugin-sqldriver-sqlite \
-    ${@bb.utils.contains("DISTRO_FEATURES", "opengl", "libqtopengl4", "", d)} \
-    "
-QT4PKGS_mips64 = ""
-QT4PKGS_mips64n32 = ""
-
 SUMMARY_packagegroup-core-lsb-desktop = "LSB Desktop"
 DESCRIPTION_packagegroup-core-lsb-desktop = "Packages required to support libraries \
     specified in the LSB Desktop specification"
@@ -245,8 +220,6 @@ RDEPENDS_packagegroup-core-lsb-desktop = "\
     gtk+ \
     atk \
     libasound \
-    ${QT4PKGS} \
-    ${@get_libqt3(d)} \
 "
 
 RDEPENDS_packagegroup-core-lsb-runtime-add = "\
@@ -265,14 +238,4 @@ RDEPENDS_packagegroup-core-lsb-runtime-add = "\
     glibc-localedata-posix \
     glibc-extra-nss \
     glibc-pcprofile \
-    libclass-isa-perl \
-    libenv-perl \
-    libdumpvalue-perl \
-    libfile-checktree-perl \
-    libi18n-collate-perl \
-    libpod-plainer-perl \
 "
-
-PTH = "pth"
-PTH_libc-uclibc = ""
-

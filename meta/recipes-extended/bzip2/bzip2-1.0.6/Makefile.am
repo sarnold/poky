@@ -1,5 +1,6 @@
 
 lib_LTLIBRARIES = libbz2.la
+libbz2_la_LDFLAGS = -version-info 1:6:0
 
 libbz2_la_SOURCES = blocksort.c  \
                     huffman.c    \
@@ -47,7 +48,8 @@ runtest:
 	else echo "FAIL: sample3 decompress"; fi
 
 install-ptest:
-	cp $(srcdir)/Makefile		$(DESTDIR)/
+	sed  -n '/^runtest:/,/^install-ptest:/{/^install-ptest:/!p}' \
+           $(srcdir)/Makefile.am      > $(DESTDIR)/Makefile
 	cp $(srcdir)/sample1.ref	$(DESTDIR)/
 	cp $(srcdir)/sample2.ref	$(DESTDIR)/
 	cp $(srcdir)/sample3.ref	$(DESTDIR)/

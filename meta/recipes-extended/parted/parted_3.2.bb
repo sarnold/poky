@@ -3,7 +3,7 @@ HOMEPAGE = "http://www.gnu.org/software/parted/parted.html"
 LICENSE = "GPLv3+"
 LIC_FILES_CHKSUM = "file://COPYING;md5=2f31b266d3440dd7ee50f92cf67d8e6c"
 SECTION = "console/tools"
-DEPENDS = "ncurses readline util-linux"
+DEPENDS = "ncurses readline util-linux virtual/libiconv"
 PR = "r1"
 
 SRC_URI = "${GNU_MIRROR}/parted/parted-${PV}.tar.xz \
@@ -13,8 +13,12 @@ SRC_URI = "${GNU_MIRROR}/parted/parted-${PV}.tar.xz \
            file://fix-compile-failure-while-dis.patch \
            file://0001-Include-fcntl.h-in-platform_defs.h.patch \
            file://0001-Unset-need_charset_alias-when-building-for-musl.patch \
+           file://0002-libparted_fs_resize-link-against-libuuid-explicitly-.patch \
+           file://0001-Move-python-helper-scripts-used-only-in-tests-to-Pyt.patch \
+	   file://parted-3.2-sysmacros.patch \
            file://run-ptest \
            file://Makefile \
+           file://0001-libparted-Use-read-only-when-probing-devices-on-linu.patch \
 "
 
 SRC_URI[md5sum] = "0247b6a7b314f8edeb618159fa95f9cb"
@@ -43,4 +47,4 @@ do_install_ptest() {
 	sed -e 's| ../parted||' -i $t/tests/*.sh
 }
 
-RDEPENDS_${PN}-ptest = "bash coreutils perl util-linux-losetup python"
+RDEPENDS_${PN}-ptest = "bash coreutils perl util-linux-losetup python3"

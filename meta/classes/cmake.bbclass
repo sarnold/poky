@@ -1,14 +1,11 @@
 # Path to the CMake file to process.
-OECMAKE_SOURCEPATH ?= "${S}"
+OECMAKE_SOURCEPATH ??= "${S}"
 
 DEPENDS_prepend = "cmake-native "
 B = "${WORKDIR}/build"
 
 # We need to unset CCACHE otherwise cmake gets too confused
 CCACHE = ""
-
-# We want the staging and installing functions from autotools
-inherit autotools
 
 # C/C++ Compiler (without cpu arch/tune arguments)
 OECMAKE_C_COMPILER ?= "`echo ${CC} | sed 's/^\([^ ]*\).*/\1/'`"
@@ -22,6 +19,8 @@ OECMAKE_C_FLAGS_RELEASE ?= "-DNDEBUG"
 OECMAKE_CXX_FLAGS_RELEASE ?= "-DNDEBUG"
 OECMAKE_C_LINK_FLAGS ?= "${HOST_CC_ARCH} ${TOOLCHAIN_OPTIONS} ${CPPFLAGS} ${LDFLAGS}"
 OECMAKE_CXX_LINK_FLAGS ?= "${HOST_CC_ARCH} ${TOOLCHAIN_OPTIONS} ${CXXFLAGS} ${LDFLAGS}"
+CXXFLAGS += "${HOST_CC_ARCH} ${TOOLCHAIN_OPTIONS}"
+CFLAGS += "${HOST_CC_ARCH} ${TOOLCHAIN_OPTIONS}"
 
 OECMAKE_RPATH ?= ""
 OECMAKE_PERLNATIVE_DIR ??= ""
@@ -29,6 +28,11 @@ OECMAKE_EXTRA_ROOT_PATH ?= ""
 
 OECMAKE_FIND_ROOT_PATH_MODE_PROGRAM = "ONLY"
 OECMAKE_FIND_ROOT_PATH_MODE_PROGRAM_class-native = "BOTH"
+
+EXTRA_OECMAKE_append = " ${PACKAGECONFIG_CONFARGS}"
+
+EXTRA_OECMAKE_BUILD_prepend_task-compile = "${PARALLEL_MAKE} "
+EXTRA_OECMAKE_BUILD_prepend_task-install = "${PARALLEL_MAKEINST} "
 
 # CMake expects target architectures in the format of uname(2),
 # which do not always match TARGET_ARCH, so all the necessary
@@ -41,11 +45,15 @@ def map_target_arch_to_uname_arch(target_arch):
     return target_arch
 
 cmake_do_generate_toolchain_file() {
+	if [ "${BUILD_SYS}" = "${HOST_SYS}" ]; then
+		cmake_crosscompiling="set( CMAKE_CROSSCOMPILING FALSE )"
+	fi
 	cat > ${WORKDIR}/toolchain.cmake <<EOF
 # CMake system name must be something like "Linux".
 # This is important for cross-compiling.
+$cmake_crosscompiling
 set( CMAKE_SYSTEM_NAME `echo ${TARGET_OS} | sed -e 's/^./\u&/' -e 's/^\(Linux\).*/\1/'` )
-set( CMAKE_SYSTEM_PROCESSOR ${@map_target_arch_to_uname_arch(d.getVar('TARGET_ARCH', True))} )
+set( CMAKE_SYSTEM_PROCESSOR ${@map_target_arch_to_uname_arch(d.getVar('TARGET_ARCH'))} )
 set( CMAKE_C_COMPILER ${OECMAKE_C_COMPILER} )
 set( CMAKE_CXX_COMPILER ${OECMAKE_CXX_COMPILER} )
 set( CMAKE_ASM_COMPILER ${OECMAKE_C_COMPILER} )
@@ -85,6 +93,8 @@ EOF
 
 addtask generate_toolchain_file after do_patch before do_configure
 
+CONFIGURE_FILES = "CMakeLists.txt"
+
 cmake_do_configure() {
 	if [ "${OECMAKE_BUILDPATH}" ]; then
 		bbnote "cmake.bbclass no longer uses OECMAKE_BUILDPATH.  The default behaviour is now out-of-tree builds with B=WORKDIR/build."
@@ -100,39 +110,41 @@ cmake_do_configure() {
 
 	# Just like autotools cmake can use a site file to cache result that need generated binaries to run
 	if [ -e ${WORKDIR}/site-file.cmake ] ; then
-		OECMAKE_SITEFILE=" -C ${WORKDIR}/site-file.cmake"
+		oecmake_sitefile="-C ${WORKDIR}/site-file.cmake"
 	else
-		OECMAKE_SITEFILE=""
+		oecmake_sitefile=
 	fi
 
 	cmake \
-	  ${OECMAKE_SITEFILE} \
+	  $oecmake_sitefile \
 	  ${OECMAKE_SOURCEPATH} \
 	  -DCMAKE_INSTALL_PREFIX:PATH=${prefix} \
-	  -DCMAKE_INSTALL_BINDIR:PATH=${bindir} \
-	  -DCMAKE_INSTALL_SBINDIR:PATH=${sbindir} \
-	  -DCMAKE_INSTALL_LIBEXECDIR:PATH=${libexecdir} \
+	  -DCMAKE_INSTALL_BINDIR:PATH=${@os.path.relpath(d.getVar('bindir'), d.getVar('prefix'))} \
+	  -DCMAKE_INSTALL_SBINDIR:PATH=${@os.path.relpath(d.getVar('sbindir'), d.getVar('prefix'))} \
+	  -DCMAKE_INSTALL_LIBEXECDIR:PATH=${@os.path.relpath(d.getVar('libexecdir'), d.getVar('prefix'))} \
 	  -DCMAKE_INSTALL_SYSCONFDIR:PATH=${sysconfdir} \
-	  -DCMAKE_INSTALL_SHAREDSTATEDIR:PATH=${sharedstatedir} \
+	  -DCMAKE_INSTALL_SHAREDSTATEDIR:PATH=${@os.path.relpath(d.getVar('sharedstatedir'), d.  getVar('prefix'))} \
 	  -DCMAKE_INSTALL_LOCALSTATEDIR:PATH=${localstatedir} \
-	  -DCMAKE_INSTALL_LIBDIR:PATH=${libdir} \
-	  -DCMAKE_INSTALL_INCLUDEDIR:PATH=${includedir} \
-	  -DCMAKE_INSTALL_DATAROOTDIR:PATH=${datadir} \
+	  -DCMAKE_INSTALL_LIBDIR:PATH=${@os.path.relpath(d.getVar('libdir'), d.getVar('prefix'))} \
+	  -DCMAKE_INSTALL_INCLUDEDIR:PATH=${@os.path.relpath(d.getVar('includedir'), d.getVar('prefix'))} \
+	  -DCMAKE_INSTALL_DATAROOTDIR:PATH=${@os.path.relpath(d.getVar('datadir'), d.getVar('prefix'))} \
 	  -DCMAKE_INSTALL_SO_NO_EXE=0 \
 	  -DCMAKE_TOOLCHAIN_FILE=${WORKDIR}/toolchain.cmake \
 	  -DCMAKE_VERBOSE_MAKEFILE=1 \
+	  -DCMAKE_NO_SYSTEM_FROM_IMPORTED=1 \
 	  ${EXTRA_OECMAKE} \
 	  -Wno-dev
 }
 
+do_compile[progress] = "percent"
 cmake_do_compile()  {
-	cd ${B}
-	base_do_compile
+	bbnote VERBOSE=1 cmake --build '${B}' -- ${EXTRA_OECMAKE_BUILD}
+	VERBOSE=1 cmake --build '${B}' -- ${EXTRA_OECMAKE_BUILD}
 }
 
 cmake_do_install() {
-	cd ${B}
-	autotools_do_install
+	bbnote DESTDIR='${D}' cmake --build '${B}' --target install -- ${EXTRA_OECMAKE_BUILD}
+	DESTDIR='${D}' cmake --build '${B}' --target install -- ${EXTRA_OECMAKE_BUILD}
 }
 
 EXPORT_FUNCTIONS do_configure do_compile do_install do_generate_toolchain_file

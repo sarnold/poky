@@ -12,22 +12,36 @@ LIC_FILES_CHKSUM = "file://LICENSE;beginline=4;md5=c5c64d696107f84b56fe337d14da1
 
 DEPENDS = "openssl bind"
 
-SRC_URI = "ftp://ftp.isc.org/isc/dhcp/${PV}/dhcp-${PV}.tar.gz \
-           file://define-macro-_PATH_DHCPD_CONF-and-_PATH_DHCLIENT_CON.patch \
+SRC_URI = "http://ftp.isc.org/isc/dhcp/${PV}/dhcp-${PV}.tar.gz \
            file://init-relay file://default-relay \
            file://init-server file://default-server \
            file://dhclient.conf file://dhcpd.conf \
+           file://dhclient-systemd-wrapper \
+           file://dhclient.service \
            file://dhcpd.service file://dhcrelay.service \
-           file://dhcpd6.service "
+           file://dhcpd6.service \
+           "
+UPSTREAM_CHECK_URI = "ftp://ftp.isc.org/isc/dhcp/"
+UPSTREAM_CHECK_REGEX = "(?P<pver>\d+\.\d+\.(\d+?))/"
 
-inherit autotools systemd
+inherit autotools systemd useradd update-rc.d
 
-SYSTEMD_PACKAGES = "${PN}-server ${PN}-relay"
+USERADD_PACKAGES = "${PN}-server"
+USERADD_PARAM_${PN}-server = "--system --no-create-home --home-dir /var/run/${PN} --shell /bin/false --user-group ${PN}"
+
+SYSTEMD_PACKAGES = "${PN}-server ${PN}-relay ${PN}-client"
 SYSTEMD_SERVICE_${PN}-server = "dhcpd.service dhcpd6.service"
 SYSTEMD_AUTO_ENABLE_${PN}-server = "disable"
 
 SYSTEMD_SERVICE_${PN}-relay = "dhcrelay.service"
 SYSTEMD_AUTO_ENABLE_${PN}-relay = "disable"
+
+SYSTEMD_SERVICE_${PN}-client = "dhclient.service"
+SYSTEMD_AUTO_ENABLE_${PN}-client = "disable"
+
+INITSCRIPT_PACKAGES = "dhcp-server"
+INITSCRIPT_NAME_dhcp-server = "dhcp-server"
+INITSCRIPT_PARAMS_dhcp-server = "defaults"
 
 TARGET_CFLAGS += "-D_GNU_SOURCE"
 EXTRA_OECONF = "--with-srv-lease-file=${localstatedir}/lib/dhcp/dhcpd.leases \
@@ -35,6 +49,8 @@ EXTRA_OECONF = "--with-srv-lease-file=${localstatedir}/lib/dhcp/dhcpd.leases \
                 --with-cli-lease-file=${localstatedir}/lib/dhcp/dhclient.leases \
                 --with-cli6-lease-file=${localstatedir}/lib/dhcp/dhclient6.leases \
                 --with-libbind=${STAGING_LIBDIR}/ \
+                --enable-paranoia --disable-static \
+                --with-randomdev=/dev/random \
                "
 
 do_install_append () {
@@ -66,13 +82,22 @@ do_install_append () {
 	sed -i -e 's,@SYSCONFDIR@,${sysconfdir},g' ${D}${systemd_unitdir}/system/dhcpd*.service
 	sed -i -e 's,@base_bindir@,${base_bindir},g' ${D}${systemd_unitdir}/system/dhcpd*.service
 	sed -i -e 's,@localstatedir@,${localstatedir},g' ${D}${systemd_unitdir}/system/dhcpd*.service
+	sed -i -e 's,@SYSCONFDIR@,${sysconfdir},g' ${D}${systemd_unitdir}/system/dhcrelay.service
+
+	install -d ${D}${base_sbindir}
+	install -m 0755 ${WORKDIR}/dhclient-systemd-wrapper ${D}${base_sbindir}/dhclient-systemd-wrapper
+	install -m 0644 ${WORKDIR}/dhclient.service ${D}${systemd_unitdir}/system
+	sed -i -e 's,@SYSCONFDIR@,${sysconfdir},g' ${D}${systemd_unitdir}/system/dhclient.service
+	sed -i -e 's,@BASE_SBINDIR@,${base_sbindir},g' ${D}${systemd_unitdir}/system/dhclient.service
 }
 
-PACKAGES += "dhcp-server dhcp-server-config dhcp-client dhcp-relay dhcp-omshell"
+PACKAGES += "dhcp-libs dhcp-server dhcp-server-config dhcp-client dhcp-relay dhcp-omshell"
 
-FILES_${PN} = ""
+PACKAGES_remove = "${PN}"
 RDEPENDS_${PN}-dev = ""
 RDEPENDS_${PN}-staticdev = ""
+
+FILES_${PN}-libs = "${libdir}/libdhcpctl.so.0* ${libdir}/libomapi.so.0*"
 
 FILES_${PN}-server = "${sbindir}/dhcpd ${sysconfdir}/init.d/dhcp-server"
 RRECOMMENDS_${PN}-server = "dhcp-server-config"
@@ -81,8 +106,11 @@ FILES_${PN}-server-config = "${sysconfdir}/default/dhcp-server ${sysconfdir}/dhc
 
 FILES_${PN}-relay = "${sbindir}/dhcrelay ${sysconfdir}/init.d/dhcp-relay ${sysconfdir}/default/dhcp-relay"
 
-FILES_${PN}-client = "${base_sbindir}/dhclient ${base_sbindir}/dhclient-script ${sysconfdir}/dhcp/dhclient.conf"
-RDEPENDS_${PN}-client = "bash"
+FILES_${PN}-client = "${base_sbindir}/dhclient \
+                      ${base_sbindir}/dhclient-script \
+                      ${sysconfdir}/dhcp/dhclient.conf \
+                      ${base_sbindir}/dhclient-systemd-wrapper \
+                     "
 
 FILES_${PN}-omshell = "${bindir}/omshell"
 

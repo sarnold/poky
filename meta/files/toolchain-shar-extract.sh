@@ -1,7 +1,32 @@
 #!/bin/sh
 
+[ -z "$ENVCLEANED" ] && exec /usr/bin/env -i ENVCLEANED=1 HOME="$HOME" \
+	LC_ALL=en_US.UTF-8 \
+	TERM=$TERM \
+	http_proxy="$http_proxy" https_proxy="$https_proxy" ftp_proxy="$ftp_proxy" \
+	no_proxy="$no_proxy" all_proxy="$all_proxy" GIT_PROXY_COMMAND="$GIT_PROXY_COMMAND" "$0" "$@"
+[ -f /etc/environment ] && . /etc/environment
+export PATH=`echo "$PATH" | sed -e 's/:\.//' -e 's/::/:/'`
+
+tweakpath () {
+    case ":${PATH}:" in
+        *:"$1":*)
+            ;;
+        *)
+            PATH=$PATH:$1
+    esac
+}
+
+# Some systems don't have /usr/sbin or /sbin in the cleaned environment PATH but we make need it 
+# for the system's host tooling checks
+tweakpath /usr/sbin
+tweakpath /sbin
+
 INST_ARCH=$(uname -m | sed -e "s/i[3-6]86/ix86/" -e "s/x86[-_]64/x86_64/")
 SDK_ARCH=$(echo @SDK_ARCH@ | sed -e "s/i[3-6]86/ix86/" -e "s/x86[-_]64/x86_64/")
+
+INST_GCC_VER=$(gcc --version | sed -ne 's/.* \([0-9]\+\.[0-9]\+\)\.[0-9]\+.*/\1/p')
+SDK_GCC_VER='@SDK_GCC_VER@'
 
 verlte () {
 	[  "$1" = "`printf "$1\n$2" | sort -V | head -n1`" ]
@@ -20,19 +45,27 @@ fi
 if [ "$INST_ARCH" != "$SDK_ARCH" ]; then
 	# Allow for installation of ix86 SDK on x86_64 host
 	if [ "$INST_ARCH" != x86_64 -o "$SDK_ARCH" != ix86 ]; then
-		echo "Error: Installation machine not supported!"
+		echo "Error: Incompatible SDK installer! Your host is $INST_ARCH and this SDK was built for $SDK_ARCH hosts."
 		exit 1
 	fi
 fi
 
+if ! xz -V > /dev/null 2>&1; then
+	echo "Error: xz is required for installation of this SDK, please install it first"
+	exit 1
+fi
+
 DEFAULT_INSTALL_DIR="@SDKPATH@"
 SUDO_EXEC=""
+EXTRA_TAR_OPTIONS=""
 target_sdk_dir=""
 answer=""
 relocate=1
 savescripts=0
 verbose=0
-while getopts ":yd:nDRS" OPT; do
+publish=0
+listcontents=0
+while getopts ":yd:npDRSl" OPT; do
 	case $OPT in
 	y)
 		answer="Y"
@@ -42,6 +75,10 @@ while getopts ":yd:nDRS" OPT; do
 		;;
 	n)
 		prepare_buildsystem="no"
+		;;
+	p)
+		prepare_buildsystem="no"
+		publish=1
 		;;
 	D)
 		verbose=1
@@ -53,20 +90,31 @@ while getopts ":yd:nDRS" OPT; do
 	S)
 		savescripts=1
 		;;
+	l)
+		listcontents=1
+		;;
 	*)
 		echo "Usage: $(basename $0) [-y] [-d <dir>]"
 		echo "  -y         Automatic yes to all prompts"
 		echo "  -d <dir>   Install the SDK to <dir>"
 		echo "======== Extensible SDK only options ============"
 		echo "  -n         Do not prepare the build system"
+		echo "  -p         Publish mode (implies -n)"
 		echo "======== Advanced DEBUGGING ONLY OPTIONS ========"
 		echo "  -S         Save relocation scripts"
 		echo "  -R         Do not relocate executables"
 		echo "  -D         use set -x to see what is going on"
+		echo "  -l         list files that will be extracted"
 		exit 1
 		;;
 	esac
 done
+
+payload_offset=$(($(grep -na -m1 "^MARKER:$" $0|cut -d':' -f1) + 1))
+if [ "$listcontents" = "1" ] ; then
+    tail -n +$payload_offset $0| tar tvJ || exit 1
+    exit
+fi
 
 titlestr="@SDK_TITLE@ installer version @SDK_VERSION@"
 printf "%s\n" "$titlestr"
@@ -81,6 +129,11 @@ fi
 # SDK_EXTENSIBLE is exposed from the SDK_PRE_INSTALL_COMMAND above
 if [ "$SDK_EXTENSIBLE" = "1" ]; then
 	DEFAULT_INSTALL_DIR="@SDKEXTPATH@"
+	if [ "$INST_GCC_VER" = '4.8' -a "$SDK_GCC_VER" = '4.9' ] || [ "$INST_GCC_VER" = '4.8' -a "$SDK_GCC_VER" = '' ] || \
+		[ "$INST_GCC_VER" = '4.9' -a "$SDK_GCC_VER" = '' ]; then
+		echo "Error: Incompatible SDK installer! Your host gcc version is $INST_GCC_VER and this SDK was built by gcc higher version."
+		exit 1
+	fi
 fi
 
 if [ "$target_sdk_dir" = "" ]; then
@@ -99,11 +152,27 @@ else
 	target_sdk_dir=$(readlink -m "$target_sdk_dir")
 fi
 
+# limit the length for target_sdk_dir, ensure the relocation behaviour in relocate_sdk.py has right result.
+if [ ${#target_sdk_dir} -gt 2048 ]; then
+	echo "Error: The target directory path is too long!!!"
+	exit 1
+fi
+
 if [ "$SDK_EXTENSIBLE" = "1" ]; then
 	# We're going to be running the build system, additional restrictions apply
-	if echo "$target_sdk_dir" | grep -q '[+\ @]'; then
+	if echo "$target_sdk_dir" | grep -q '[+\ @$]'; then
 		echo "The target directory path ($target_sdk_dir) contains illegal" \
-		     "characters such as spaces, @ or +. Abort!"
+		     "characters such as spaces, @, \$ or +. Abort!"
+		exit 1
+	fi
+	# The build system doesn't work well with /tmp on NFS
+	fs_dev_path="$target_sdk_dir"
+	while [ ! -d "$fs_dev_path" ] ; do
+		fs_dev_path=`dirname $fs_dev_path`
+        done
+	fs_dev_type=`stat -f -c '%t' "$fs_dev_path"`
+	if [ "$fsdevtype" = "6969" ] ; then
+		echo "The target directory path $target_sdk_dir is on NFS, this is not possible. Abort!"
 		exit 1
 	fi
 else
@@ -161,17 +230,26 @@ if [ ! -x $target_sdk_dir -o ! -w $target_sdk_dir -o ! -r $target_sdk_dir ]; the
 	$SUDO_EXEC mkdir -p $target_sdk_dir >/dev/null 2>&1
 fi
 
-payload_offset=$(($(grep -na -m1 "^MARKER:$" $0|cut -d':' -f1) + 1))
-
 printf "Extracting SDK..."
-tail -n +$payload_offset $0| $SUDO_EXEC tar xj -C $target_sdk_dir --checkpoint=.2500
+tail -n +$payload_offset $0| $SUDO_EXEC tar xJ -C $target_sdk_dir --checkpoint=.2500 $EXTRA_TAR_OPTIONS || exit 1
 echo "done"
 
 printf "Setting it up..."
 # fix environment paths
+real_env_setup_script=""
 for env_setup_script in `ls $target_sdk_dir/environment-setup-*`; do
+	if grep -q 'OECORE_NATIVE_SYSROOT=' $env_setup_script; then
+		# Handle custom env setup scripts that are only named
+		# environment-setup-* so that they have relocation
+		# applied - what we want beyond here is the main one
+		# rather than the one that simply sorts last
+		real_env_setup_script="$env_setup_script"
+	fi
 	$SUDO_EXEC sed -e "s:@SDKPATH@:$target_sdk_dir:g" -i $env_setup_script
 done
+if [ -n "$real_env_setup_script" ] ; then
+	env_setup_script="$real_env_setup_script"
+fi
 
 @SDK_POST_INSTALL_COMMAND@
 

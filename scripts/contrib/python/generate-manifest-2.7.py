@@ -9,10 +9,14 @@
 #  * Updated to no longer generate special -dbg package, instead use the
 #    single system -dbg
 #  * Update version with ".1" to indicate this change
+#
+# February 26, 2017 -- Ming Liu <peter.x.liu@external.atlascopco.com>
+#  * Updated to support generating manifest for native python
 
 import os
 import sys
 import time
+import argparse
 
 VERSION = "2.7.2"
 
@@ -21,16 +25,17 @@ __version__ = "20110222.2"
 
 class MakefileMaker:
 
-    def __init__( self, outfile ):
+    def __init__( self, outfile, isNative ):
         """initialize"""
         self.packages = {}
+        self.excluded_pkgs = []
         self.targetPrefix = "${libdir}/python%s/" % VERSION[:3]
+        self.isNative = isNative
         self.output = outfile
         self.out( """
 # WARNING: This file is AUTO GENERATED: Manual edits will be lost next time I regenerate the file.
-# Generator: '%s' Version %s (C) 2002-2010 Michael 'Mickey' Lauer <mlauer@vanille-media.de>
-# Visit the Python for Embedded Systems Site => http://www.Vanille.de/projects/python.spy
-""" % ( sys.argv[0], __version__ ) )
+# Generator: '%s%s' Version %s (C) 2002-2010 Michael 'Mickey' Lauer <mlauer@vanille-media.de>
+""" % ( sys.argv[0], ' --native' if isNative else '', __version__ ) )
 
     #
     # helper functions
@@ -48,7 +53,7 @@ class MakefileMaker:
         self.out( """ """ )
         self.out( "" )
 
-    def addPackage( self, name, description, dependencies, filenames ):
+    def addPackage( self, name, description, dependencies, filenames, mod_exclude = False ):
         """add a package to the Makefile"""
         if type( filenames ) == type( "" ):
             filenames = filenames.split()
@@ -58,12 +63,26 @@ class MakefileMaker:
                 fullFilenames.append( "%s%s" % ( self.targetPrefix, filename ) )
             else:
                 fullFilenames.append( filename )
+        if mod_exclude:
+            self.excluded_pkgs.append( name )
         self.packages[name] = description, dependencies, fullFilenames
 
     def doBody( self ):
         """generate body of Makefile"""
 
         global VERSION
+
+        #
+        # generate rprovides line for native
+        #
+
+        if self.isNative:
+            pkglist = []
+            for name in ['${PN}-modules'] + sorted(self.packages):
+                pkglist.append('%s-native' % name.replace('${PN}', 'python'))
+
+            self.out('RPROVIDES += "%s"' % " ".join(pkglist))
+            return
 
         #
         # generate provides line
@@ -97,7 +116,7 @@ class MakefileMaker:
         # generate package variables
         #
 
-        for name, data in sorted(self.packages.iteritems()):
+        for name, data in sorted(self.packages.items()):
             desc, deps, files = data
 
             #
@@ -130,8 +149,8 @@ class MakefileMaker:
         self.out( 'SUMMARY_${PN}-modules="All Python modules"' )
         line = 'RDEPENDS_${PN}-modules="'
 
-        for name, data in sorted(self.packages.iteritems()):
-            if name not in ['${PN}-dev', '${PN}-distutils-staticdev']:
+        for name, data in sorted(self.packages.items()):
+            if name not in ['${PN}-dev', '${PN}-distutils-staticdev'] and name not in self.excluded_pkgs:
                 line += "%s " % name
 
         self.out( "%s \"" % line )
@@ -147,31 +166,35 @@ class MakefileMaker:
         self.doEpilog()
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser( description='generate python manifest' )
+    parser.add_argument( '-n', '--native', help='generate manifest for native python', action='store_true' )
+    parser.add_argument( 'outfile', metavar='OUTPUT_FILE', nargs='?', default='', help='Output file (defaults to stdout)' )
+    args = parser.parse_args()
 
-    if len( sys.argv ) > 1:
+    if args.outfile:
         try:
-            os.unlink(sys.argv[1])
+            os.unlink( args.outfile )
         except Exception:
             sys.exc_clear()
-        outfile = file( sys.argv[1], "w" )
+        outfile = open( args.outfile, "w" )
     else:
         outfile = sys.stdout
 
-    m = MakefileMaker( outfile )
+    m = MakefileMaker( outfile, args.native )
 
     # Add packages here. Only specify dlopen-style library dependencies here, no ldd-style dependencies!
     # Parameters: revision, name, description, dependencies, filenames
     #
 
     m.addPackage( "${PN}-core", "Python interpreter and core modules", "${PN}-lang ${PN}-re",
-    "__future__.* _abcoll.* abc.* copy.* copy_reg.* ConfigParser.* " +
+    "__future__.* _abcoll.* abc.* ast.* copy.* copy_reg.* ConfigParser.* " +
     "genericpath.* getopt.* linecache.* new.* " +
     "os.* posixpath.* struct.* " +
     "warnings.* site.* stat.* " +
     "UserDict.* UserList.* UserString.* " +
     "lib-dynload/binascii.so lib-dynload/_struct.so lib-dynload/time.so " +
     "lib-dynload/xreadlines.so types.* platform.* ${bindir}/python* "  +
-    "_weakrefset.* sysconfig.* _sysconfigdata.* config/Makefile " +
+    "_weakrefset.* sysconfig.* _sysconfigdata.* " +
     "${includedir}/python${PYTHON_MAJMIN}/pyconfig*.h " +
     "${libdir}/python${PYTHON_MAJMIN}/sitecustomize.py ")
 
@@ -185,7 +208,8 @@ if __name__ == "__main__":
     "${base_libdir}/*.a " +
     "${base_libdir}/*.o " +
     "${datadir}/aclocal " +
-    "${datadir}/pkgconfig " )
+    "${datadir}/pkgconfig " +
+    "config/Makefile ")
 
     m.addPackage( "${PN}-2to3", "Python automated Python 2 to 3 code translator", "${PN}-core",
     "${bindir}/2to3 lib2to3" ) # package
@@ -244,15 +268,11 @@ if __name__ == "__main__":
     m.addPackage( "${PN}-distutils-staticdev", "Python distribution utilities (static libraries)", "${PN}-distutils",
     "config/lib*.a" ) # package
 
-    m.addPackage( "${PN}-distutils", "Python Distribution Utilities", "${PN}-core",
+    m.addPackage( "${PN}-distutils", "Python Distribution Utilities", "${PN}-core ${PN}-email",
     "config distutils" ) # package
 
     m.addPackage( "${PN}-doctest", "Python framework for running examples in docstrings", "${PN}-core ${PN}-lang ${PN}-io ${PN}-re ${PN}-unittest ${PN}-debugger ${PN}-difflib",
     "doctest.*" )
-
-    # FIXME consider adding to some higher level package
-    m.addPackage( "${PN}-elementtree", "Python elementree", "${PN}-core",
-    "lib-dynload/_elementtree.so" )
 
     m.addPackage( "${PN}-email", "Python email support", "${PN}-core ${PN}-io ${PN}-re ${PN}-mime ${PN}-audio ${PN}-image ${PN}-netclient",
     "imaplib.* email" ) # package
@@ -322,6 +342,9 @@ if __name__ == "__main__":
     m.addPackage( "${PN}-pkgutil", "Python package extension utility support", "${PN}-core",
     "pkgutil.*")
 
+    m.addPackage( "${PN}-plistlib", "Generate and parse Mac OS X .plist files", "${PN}-core ${PN}-datetime ${PN}-io",
+    "plistlib.*")
+
     m.addPackage( "${PN}-pprint", "Python pretty-print support", "${PN}-core ${PN}-io",
     "pprint.*" )
 
@@ -361,8 +384,8 @@ if __name__ == "__main__":
     m.addPackage( "${PN}-terminal", "Python terminal controlling support", "${PN}-core ${PN}-io",
     "pty.* tty.*" )
 
-    m.addPackage( "${PN}-tests", "Python tests", "${PN}-core",
-    "test" ) # package
+    m.addPackage( "${PN}-tests", "Python tests", "${PN}-core ${PN}-modules",
+    "test", True ) # package
 
     m.addPackage( "${PN}-threading", "Python threading & synchronization support", "${PN}-core ${PN}-lang",
     "_threading_local.* dummy_thread.* dummy_threading.* mutex.* threading.* Queue.*" )
@@ -376,8 +399,8 @@ if __name__ == "__main__":
     m.addPackage( "${PN}-unixadmin", "Python Unix administration support", "${PN}-core",
     "lib-dynload/nis.so lib-dynload/grp.so lib-dynload/pwd.so getpass.*" )
 
-    m.addPackage( "${PN}-xml", "Python basic XML support", "${PN}-core ${PN}-elementtree ${PN}-re",
-    "lib-dynload/pyexpat.so xml xmllib.*" ) # package
+    m.addPackage( "${PN}-xml", "Python basic XML support", "${PN}-core ${PN}-re",
+    "lib-dynload/_elementtree.so lib-dynload/pyexpat.so xml xmllib.*" ) # package
 
     m.addPackage( "${PN}-xmlrpc", "Python XML-RPC support", "${PN}-core ${PN}-xml ${PN}-netserver ${PN}-lang",
     "xmlrpclib.* SimpleXMLRPCServer.* DocXMLRPCServer.*" )

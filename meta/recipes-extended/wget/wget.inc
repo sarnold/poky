@@ -5,11 +5,9 @@ LICENSE = "GPLv3"
 LIC_FILES_CHKSUM = "file://COPYING;md5=d32239bcb673463ab874e80d47fae504"
 DEPENDS = "gnutls zlib libpcre"
 
-INC_PR = "r16"
-
 inherit autotools gettext texinfo update-alternatives pkgconfig
 
-EXTRA_OECONF = "--enable-ipv6 --with-ssl=gnutls --disable-rpath --disable-iri \
+EXTRA_OECONF = "--with-ssl=gnutls --disable-rpath --disable-iri \
                 --without-libgnutls-prefix ac_cv_header_uuid_uuid_h=no"
 
 ALTERNATIVE_${PN} = "wget"
@@ -18,7 +16,13 @@ ALTERNATIVE_PRIORITY = "100"
 
 RRECOMMENDS_${PN} += "ca-certificates"
 
-BBCLASSEXTEND += "nativesdk"
+BBCLASSEXTEND = "nativesdk"
 
-PACKAGECONFIG ??= ""
+PACKAGECONFIG ??= "${@bb.utils.filter('DISTRO_FEATURES', 'ipv6', d)}"
 PACKAGECONFIG[libuuid] = "--with-libuuid, --without-libuuid,util-linux"
+PACKAGECONFIG[ipv6] = "--enable-ipv6,--disable-ipv6,"
+
+# Let aclocal use the relative path for the m4 file rather than
+# absolute, otherwise there might be an "Argument list too long" error
+# when it is built in a long/deep directory.
+acpaths = "-I ./m4"

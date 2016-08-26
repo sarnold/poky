@@ -15,56 +15,83 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=3bf50002aefd002f49e7bb854063f7e7 \
 BUGTRACKER = "http://bugzilla.gnome.org"
 SECTION = "libs"
 
+CVE_PRODUCT = "glib"
+
 BBCLASSEXTEND = "native nativesdk"
 
-DEPENDS = "virtual/libiconv libffi zlib"
-DEPENDS_append = " ${@bb.utils.contains('PTEST_ENABLED', '1', ' glib-2.0-native dbus', '', d)}"
+DEPENDS = "virtual/libiconv libffi zlib glib-2.0-native"
+DEPENDS_append = " ${@bb.utils.contains('PTEST_ENABLED', '1', ' dbus', '', d)}"
 DEPENDS_class-native = "pkgconfig-native gettext-native libffi-native zlib-native"
-DEPENDS_class-nativesdk = "nativesdk-libtool nativesdk-gettext nativesdk-libffi nativesdk-zlib"
+DEPENDS_class-nativesdk = "nativesdk-libtool nativesdk-gettext nativesdk-libffi nativesdk-zlib glib-2.0-native"
 
-PACKAGES =+ "${PN}-utils ${PN}-bash-completion ${PN}-codegen"
+PACKAGES += "${PN}-codegen ${PN}-utils"
 
 LEAD_SONAME = "libglib-2.0.*"
-FILES_${PN}-utils = "${bindir}/* ${datadir}/glib-2.0/gettext"
 
-inherit autotools gettext gtk-doc pkgconfig ptest-gnome
+inherit autotools gettext gtk-doc pkgconfig ptest-gnome upstream-version-is-even bash-completion gio-module-cache python3native manpages
 
 S = "${WORKDIR}/glib-${PV}"
 
-CORECONF = "--disable-dtrace --disable-fam --disable-libelf --disable-systemtap --disable-man"
+PACKAGECONFIG ??= "system-pcre libmount"
+# To use the system pcre it must be configured with --enable-unicode-properties
+PACKAGECONFIG[system-pcre] = "--with-pcre=system,--with-pcre=internal,libpcre"
+PACKAGECONFIG[libmount] = "--enable-libmount,--disable-libmount,util-linux"
+PACKAGECONFIG[manpages] = "--enable-man --with-xml-catalog=${STAGING_ETCDIR_NATIVE}/xml/catalog.xml, --disable-man, libxslt-native xmlto-native"
+
+CORECONF = "--disable-dtrace --disable-fam --disable-libelf --disable-systemtap"
 
 PRINTF = "--enable-included-printf=no"
 PRINTF_darwin = "--enable-included-printf=yes"
 PRINTF_mingw32 = "--enable-included-printf=yes"
 EXTRA_OECONF = "${PRINTF} ${CORECONF}"
 EXTRA_OECONF_class-native = "${CORECONF} --disable-selinux"
-EXTRA_OECONF_append_libc-uclibc = " --with-libiconv=gnu"
+
+# Tell configure that we'll have dbus-daemon on the target for the tests
+EXTRA_OECONF_class-target_append = " ${@bb.utils.contains('PTEST_ENABLED', '1', ' ac_cv_prog_DBUS_DAEMON=dbus-daemon', '', d)}"
 
 do_configure_prepend() {
-	sed -i -e '1s,#!.*,#!${USRBINPATH}/env python,' ${S}/gio/gdbus-2.0/codegen/gdbus-codegen.in
+	sed -i -e '1s,#!.*,#!${USRBINPATH}/env python3,' ${S}/gio/gdbus-2.0/codegen/gdbus-codegen.in
 }
 
-FILES_${PN} = "${libdir}/lib*${SOLIBS} ${libdir}/gio ${datadir}/glib-2.0/schemas \
-               ${datadir}/glib-2.0/gettext/mkinstalldirs ${datadir}/glib-2.0/gettext/po/Makefile.in.in"
+FILES_${PN} = "${libdir}/lib*${SOLIBS} \
+               ${libdir}/gio \
+               ${libexecdir}/*gio-querymodules \
+               ${datadir}/glib-2.0/schemas"
 FILES_${PN}-dev += "${libdir}/glib-2.0/include \
                     ${libdir}/gio/modules/lib*${SOLIBSDEV} \
-                    ${libdir}/gio/modules/*.la"
-FILES_${PN}-dbg += "${datadir}/glib-2.0/gdb ${datadir}/gdb \
-                    ${libdir}/gio/modules/.debug \
-                    ${libdir}/glib-2.0/installed-tests/glib/.debug"
-FILES_${PN}-codegen = "${datadir}/glib-2.0/codegen/*.py"
-FILES_${PN}-bash-completion = "${sysconfdir}/bash_completion.d \
-                               ${datadir}/bash-completion"
+                    ${libdir}/gio/modules/*.la \
+                    ${bindir}/glib-genmarshal \
+                    ${bindir}/glib-gettextize \
+                    ${bindir}/glib-mkenums \
+                    ${bindir}/glib-compile-resources \
+                    ${datadir}/glib-2.0/gettext/po/Makefile.in.in \
+                    ${datadir}/glib-2.0/schemas/gschema.dtd \
+                    ${datadir}/glib-2.0/valgrind/glib.supp \
+                    ${datadir}/gettext/its"
+FILES_${PN}-dbg += "${datadir}/glib-2.0/gdb ${datadir}/gdb"
+FILES_${PN}-codegen = "${datadir}/glib-2.0/codegen/*.py \
+                       ${bindir}/gdbus-codegen"
+FILES_${PN}-utils = "${bindir}/*"
 
-ARM_INSTRUCTION_SET = "arm"
+RRECOMMENDS_${PN} += "shared-mime-info"
+# When cross compiling for Windows we don't want to include this
+RRECOMMENDS_${PN}_remove_mingw32 = "shared-mime-info"
+
+ARM_INSTRUCTION_SET_armv4 = "arm"
+ARM_INSTRUCTION_SET_armv5 = "arm"
+# Valgrind runtime detection works using hand-written assembly, which
+# doesn't support mips16e
+CPPFLAGS_append_class-target_mips16e = " -DNVALGRIND=1"
+
 USE_NLS = "yes"
 
 do_install_append () {
 	if [ -f ${D}${bindir}/gtester-report ]; then
-		sed ${D}${bindir}/gtester-report -i -e '1s|^#!.*|#!/usr/bin/env python|'
+		sed ${D}${bindir}/gtester-report -i -e '1s|^#!.*|#!/usr/bin/env python3|'
 	fi
 
 	# Remove some unpackaged files
+	rm -rf ${D}${datadir}/glib-2.0/codegen/__pycache__
 	rm -f ${D}${datadir}/glib-2.0/codegen/*.pyc
 	rm -f ${D}${datadir}/glib-2.0/codegen/*.pyo
 
@@ -73,17 +100,35 @@ do_install_append () {
 	if [ -f ${D}${bindir}/glib-mkenums ]; then
 		sed -i -e '1s,#!.*perl,#! ${USRBINPATH}/env perl,' ${D}${bindir}/glib-mkenums
 	fi
+
+	if [ -e ${D}${libdir}/charset.alias ]; then
+		rm -f ${D}${libdir}/charset.alias
+	fi
+}
+
+do_install_append_class-target () {
+	# Tests are only installed on targets, not native builds.  Separating this out
+	# keeps glib-2.0-native from depending on ${DISTRO_FEATURES}
+	if [ -f ${D}${datadir}/installed-tests/glib/gdbus-serialization.test ]; then
+		if ${@bb.utils.contains("DISTRO_FEATURES", "x11", "false", "true", d)}; then
+			rm ${D}${datadir}/installed-tests/glib/gdbus-serialization.test
+		fi
+	fi
+
+	# Make sure gio-querymodules is unique among multilibs
+	if test "x${MLPREFIX}" != "x"; then
+		mv ${D}${libexecdir}/gio-querymodules ${D}${libexecdir}/${MLPREFIX}gio-querymodules
+	fi
 }
 
 RDEPENDS_${PN}-ptest += "\
+            dbus \
             gnome-desktop-testing \
             tzdata \
             tzdata-americas \
             tzdata-asia \
             tzdata-europe \
             tzdata-posix \
-            python-pygobject \
-            python-dbus \
             shared-mime-info \
            "
 

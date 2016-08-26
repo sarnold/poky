@@ -13,11 +13,16 @@ S = "${WORKDIR}/git-${PV}"
 
 LIC_FILES_CHKSUM = "file://COPYING;md5=7c0d7ef03a7eb04ce795b0f60e68e7e1"
 
+PACKAGECONFIG ??= ""
+PACKAGECONFIG[cvsserver] = ""
+PACKAGECONFIG[svn] = ""
+
 EXTRA_OECONF = "--with-perl=${STAGING_BINDIR_NATIVE}/perl-native/perl \
 		--without-tcltk \
 "
 
-inherit autotools-brokensep perlnative
+# Needs brokensep as this doesn't use automake
+inherit autotools-brokensep perlnative bash-completion
 
 EXTRA_OEMAKE = "NO_PYTHON=1 CFLAGS='${CFLAGS}' LDFLAGS='${LDFLAGS}'"
 EXTRA_OEMAKE += "'PERL_PATH=/usr/bin/env perl'"
@@ -31,8 +36,7 @@ do_compile_prepend () {
 
 do_install () {
 	oe_runmake install DESTDIR="${D}" bindir=${bindir} \
-		template_dir=${datadir}/git-core/templates \
-		GIT_PYTHON_DIR=${D}${datadir}/git-core/python
+		template_dir=${datadir}/git-core/templates
 	install -d ${D}/${mandir}/man1
 	install -d ${D}/${mandir}/man5
 	install -d ${D}/${mandir}/man7
@@ -46,12 +50,31 @@ do_install () {
 perl_native_fixup () {
 	sed -i -e 's#${STAGING_BINDIR_NATIVE}/perl-native/#${bindir}/#' \
 	       -e 's#${libdir}/perl-native/#${libdir}/#' \
-	    ${@d.getVar("PERLTOOLS", True).replace(' /',d.getVar('D', True) + '/')}
+	    ${@d.getVar("PERLTOOLS").replace(' /',d.getVar('D') + '/')}
 
 	# ${libdir} is not applicable here, perl-native files are always
 	# installed to /usr/lib on both 32/64 bits targets.
+
+	mkdir -p ${D}${libdir}
 	mv ${D}${exec_prefix}/lib/perl-native/perl ${D}${libdir}
 	rmdir -p ${D}${exec_prefix}/lib/perl-native || true
+
+	if [ ! "${@bb.utils.filter('PACKAGECONFIG', 'cvsserver', d)}" ]; then
+		# Only install the git cvsserver command if explicitly requested
+		# as it requires the DBI Perl module, which does not exist in
+		# OE-Core.
+		rm ${D}${libexecdir}/git-core/git-cvsserver \
+		   ${D}${bindir}/git-cvsserver
+	fi
+
+	if [ ! "${@bb.utils.filter('PACKAGECONFIG', 'svn', d)}" ]; then
+		# Only install the git svn command and all Git::SVN Perl modules
+		# if explicitly requested as they require the SVN::Core Perl
+		# module, which does not exist in OE-Core.
+		rm -r ${D}${libexecdir}/git-core/git-svn \
+		      ${D}${libdir}/perl/site_perl/*/Git/SVN*
+		sed -i -e '/SVN/d' ${D}${libdir}/perl/site_perl/*/auto/Git/.packlist
+	fi
 }
 
 REL_GIT_EXEC_PATH = "${@os.path.relpath(libexecdir, bindir)}/git-core"
@@ -75,7 +98,6 @@ do_install_append_class-nativesdk() {
 }
 
 FILES_${PN} += "${datadir}/git-core ${libexecdir}/git-core/"
-FILES_${PN}-dbg += "${libexecdir}/git-core/.debug"
 
 PERLTOOLS = " \
     ${libexecdir}/git-core/git-add--interactive \
@@ -85,7 +107,6 @@ PERLTOOLS = " \
     ${libexecdir}/git-core/git-cvsserver \
     ${bindir}/git-cvsserver \
     ${libexecdir}/git-core/git-difftool \
-    ${libexecdir}/git-core/git-relink \
     ${libexecdir}/git-core/git-send-email \
     ${libexecdir}/git-core/git-svn \
     ${libexecdir}/git-core/git-instaweb \
@@ -97,10 +118,6 @@ PERLTOOLS = " \
     ${datadir}/git-core/templates/hooks/pre-rebase.sample \
 "
 
-# Basic tab completion support
-PACKAGES =+ "${PN}-bash-completion"
-FILES_${PN}-bash-completion = "${datadir}/bash-completion/completions/*"
-
 # Git tools requiring perl
 PACKAGES =+ "${PN}-perltools"
 FILES_${PN}-perltools += " \
@@ -109,10 +126,6 @@ FILES_${PN}-perltools += " \
     ${datadir}/perl \
 "
 RDEPENDS_${PN}-perltools = "${PN} perl perl-module-file-path findutils"
-
-PACKAGES =+ "${PN}-python"
-FILES_${PN}-python = "${libdir}/python*"
-
 
 # git-tk package with gitk and git-gui
 PACKAGES =+ "${PN}-tk"
@@ -125,6 +138,6 @@ FILES_${PN}-tk = " \
 
 PACKAGES =+ "gitweb"
 FILES_gitweb = "${datadir}/gitweb/"
-
+RDEPENDS_gitweb = "perl"
 
 BBCLASSEXTEND = "native nativesdk"

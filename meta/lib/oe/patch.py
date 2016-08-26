@@ -8,12 +8,14 @@ class NotFoundError(bb.BBHandledException):
         return "Error: %s not found." % self.path
 
 class CmdError(bb.BBHandledException):
-    def __init__(self, exitstatus, output):
+    def __init__(self, command, exitstatus, output):
+        self.command = command
         self.status = exitstatus
         self.output = output
 
     def __str__(self):
-        return "Command Error: exit status: %d  Output:\n%s" % (self.status, self.output)
+        return "Command Error: '%s' exited with %d  Output:\n%s" % \
+                (self.command, self.status, self.output)
 
 
 def runcmd(args, dir = None):
@@ -32,7 +34,7 @@ def runcmd(args, dir = None):
         # print("cmd: %s" % cmd)
         (exitstatus, output) = oe.utils.getstatusoutput(cmd)
         if exitstatus != 0:
-            raise CmdError(exitstatus >> 8, output)
+            raise CmdError(cmd, exitstatus >> 8, output)
         return output
 
     finally:
@@ -79,7 +81,7 @@ class PatchSet(object):
                 patch[param] = PatchSet.defaults[param]
 
         if patch.get("remote"):
-            patch["file"] = bb.data.expand(bb.fetch2.localpath(patch["remote"], self.d), self.d)
+            patch["file"] = self.d.expand(bb.fetch2.localpath(patch["remote"], self.d))
 
         patch["filemd5"] = bb.utils.md5_file(patch["file"])
 
@@ -115,43 +117,50 @@ class PatchSet(object):
                 return None
             return os.sep.join(filesplit[striplevel:])
 
-        copiedmode = False
-        filelist = []
-        with open(patchfile) as f:
-            for line in f:
-                if line.startswith('--- '):
-                    patchpth = patchedpath(line)
-                    if not patchpth:
-                        break
-                    if copiedmode:
-                        addedfile = patchpth
-                    else:
-                        removedfile = patchpth
-                elif line.startswith('+++ '):
-                    addedfile = patchedpath(line)
-                    if not addedfile:
-                        break
-                elif line.startswith('*** '):
-                    copiedmode = True
-                    removedfile = patchedpath(line)
-                    if not removedfile:
-                        break
-                else:
-                    removedfile = None
-                    addedfile = None
+        for encoding in ['utf-8', 'latin-1']:
+            try:
+                copiedmode = False
+                filelist = []
+                with open(patchfile) as f:
+                    for line in f:
+                        if line.startswith('--- '):
+                            patchpth = patchedpath(line)
+                            if not patchpth:
+                                break
+                            if copiedmode:
+                                addedfile = patchpth
+                            else:
+                                removedfile = patchpth
+                        elif line.startswith('+++ '):
+                            addedfile = patchedpath(line)
+                            if not addedfile:
+                                break
+                        elif line.startswith('*** '):
+                            copiedmode = True
+                            removedfile = patchedpath(line)
+                            if not removedfile:
+                                break
+                        else:
+                            removedfile = None
+                            addedfile = None
 
-                if addedfile and removedfile:
-                    if removedfile == '/dev/null':
-                        mode = 'A'
-                    elif addedfile == '/dev/null':
-                        mode = 'D'
-                    else:
-                        mode = 'M'
-                    if srcdir:
-                        fullpath = os.path.abspath(os.path.join(srcdir, addedfile))
-                    else:
-                        fullpath = addedfile
-                    filelist.append((fullpath, mode))
+                        if addedfile and removedfile:
+                            if removedfile == '/dev/null':
+                                mode = 'A'
+                            elif addedfile == '/dev/null':
+                                mode = 'D'
+                            else:
+                                mode = 'M'
+                            if srcdir:
+                                fullpath = os.path.abspath(os.path.join(srcdir, addedfile))
+                            else:
+                                fullpath = addedfile
+                            filelist.append((fullpath, mode))
+            except UnicodeDecodeError:
+                continue
+            break
+        else:
+            raise PatchError('Unable to decode %s' % patchfile)
 
         return filelist
 
@@ -212,13 +221,17 @@ class PatchTree(PatchSet):
         if not force:
             shellcmd.append('--dry-run')
 
-        output = runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+        try:
+            output = runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
 
-        if force:
-            return
+            if force:
+                return
 
-        shellcmd.pop(len(shellcmd) - 1)
-        output = runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+            shellcmd.pop(len(shellcmd) - 1)
+            output = runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
+        except CmdError as err:
+            raise bb.BBHandledException("Applying '%s' failed:\n%s" %
+                                        (os.path.basename(patch['file']), err.output))
 
         if not reverse:
             self._appendPatchFile(patch['file'], patch['strippath'])
@@ -264,51 +277,64 @@ class PatchTree(PatchSet):
 
 class GitApplyTree(PatchTree):
     patch_line_prefix = '%% original patch'
+    ignore_commit_prefix = '%% ignore'
 
     def __init__(self, dir, d):
         PatchTree.__init__(self, dir, d)
+        self.commituser = d.getVar('PATCH_GIT_USER_NAME')
+        self.commitemail = d.getVar('PATCH_GIT_USER_EMAIL')
 
     @staticmethod
     def extractPatchHeader(patchfile):
         """
         Extract just the header lines from the top of a patch file
         """
-        lines = []
-        with open(patchfile, 'r') as f:
-            for line in f.readlines():
-                if line.startswith('Index: ') or line.startswith('diff -') or line.startswith('---'):
-                    break
-                lines.append(line)
+        for encoding in ['utf-8', 'latin-1']:
+            lines = []
+            try:
+                with open(patchfile, 'r', encoding=encoding) as f:
+                    for line in f:
+                        if line.startswith('Index: ') or line.startswith('diff -') or line.startswith('---'):
+                            break
+                        lines.append(line)
+            except UnicodeDecodeError:
+                continue
+            break
+        else:
+            raise PatchError('Unable to find a character encoding to decode %s' % patchfile)
         return lines
 
     @staticmethod
-    def prepareCommit(patchfile):
-        """
-        Prepare a git commit command line based on the header from a patch file
-        (typically this is useful for patches that cannot be applied with "git am" due to formatting)
-        """
-        import tempfile
+    def decodeAuthor(line):
+        from email.header import decode_header
+        authorval = line.split(':', 1)[1].strip().replace('"', '')
+        result =  decode_header(authorval)[0][0]
+        if hasattr(result, 'decode'):
+            result = result.decode('utf-8')
+        return result
+
+    @staticmethod
+    def interpretPatchHeader(headerlines):
         import re
         author_re = re.compile('[\S ]+ <\S+@\S+\.\S+>')
-        # Process patch header and extract useful information
-        lines = GitApplyTree.extractPatchHeader(patchfile)
+        from_commit_re = re.compile('^From [a-z0-9]{40} .*')
         outlines = []
         author = None
         date = None
-        for line in lines:
+        subject = None
+        for line in headerlines:
             if line.startswith('Subject: '):
                 subject = line.split(':', 1)[1]
                 # Remove any [PATCH][oe-core] etc.
                 subject = re.sub(r'\[.+?\]\s*', '', subject)
-                outlines.insert(0, '%s\n\n' % subject.strip())
                 continue
-            if line.startswith('From: ') or line.startswith('Author: '):
-                authorval = line.split(':', 1)[1].strip().replace('"', '')
+            elif line.startswith('From: ') or line.startswith('Author: '):
+                authorval = GitApplyTree.decodeAuthor(line)
                 # git is fussy about author formatting i.e. it must be Name <email@domain>
                 if author_re.match(authorval):
                     author = authorval
                     continue
-            if line.startswith('Date: '):
+            elif line.startswith('Date: '):
                 if date is None:
                     dateval = line.split(':', 1)[1].strip()
                     # Very crude check for date format, since git will blow up if it's not in the right
@@ -316,19 +342,81 @@ class GitApplyTree(PatchTree):
                     if len(dateval) > 12:
                         date = dateval
                 continue
-            if line.startswith('Signed-off-by: '):
-                authorval = line.split(':', 1)[1].strip().replace('"', '')
+            elif not author and line.lower().startswith('signed-off-by: '):
+                authorval = GitApplyTree.decodeAuthor(line)
                 # git is fussy about author formatting i.e. it must be Name <email@domain>
                 if author_re.match(authorval):
                     author = authorval
+            elif from_commit_re.match(line):
+                # We don't want the From <commit> line - if it's present it will break rebasing
+                continue
             outlines.append(line)
+
+        if not subject:
+            firstline = None
+            for line in headerlines:
+                line = line.strip()
+                if firstline:
+                    if line:
+                        # Second line is not blank, the first line probably isn't usable
+                        firstline = None
+                    break
+                elif line:
+                    firstline = line
+            if firstline and not firstline.startswith(('#', 'Index:', 'Upstream-Status:')) and len(firstline) < 100:
+                subject = firstline
+
+        return outlines, author, date, subject
+
+    @staticmethod
+    def gitCommandUserOptions(cmd, commituser=None, commitemail=None, d=None):
+        if d:
+            commituser = d.getVar('PATCH_GIT_USER_NAME')
+            commitemail = d.getVar('PATCH_GIT_USER_EMAIL')
+        if commituser:
+            cmd += ['-c', 'user.name="%s"' % commituser]
+        if commitemail:
+            cmd += ['-c', 'user.email="%s"' % commitemail]
+
+    @staticmethod
+    def prepareCommit(patchfile, commituser=None, commitemail=None):
+        """
+        Prepare a git commit command line based on the header from a patch file
+        (typically this is useful for patches that cannot be applied with "git am" due to formatting)
+        """
+        import tempfile
+        # Process patch header and extract useful information
+        lines = GitApplyTree.extractPatchHeader(patchfile)
+        outlines, author, date, subject = GitApplyTree.interpretPatchHeader(lines)
+        if not author or not subject or not date:
+            try:
+                shellcmd = ["git", "log", "--format=email", "--follow", "--diff-filter=A", "--", patchfile]
+                out = runcmd(["sh", "-c", " ".join(shellcmd)], os.path.dirname(patchfile))
+            except CmdError:
+                out = None
+            if out:
+                _, newauthor, newdate, newsubject = GitApplyTree.interpretPatchHeader(out.splitlines())
+                if not author:
+                    # If we're setting the author then the date should be set as well
+                    author = newauthor
+                    date = newdate
+                elif not date:
+                    # If we don't do this we'll get the current date, at least this will be closer
+                    date = newdate
+                if not subject:
+                    subject = newsubject
+        if subject and outlines and not outlines[0].strip() == subject:
+            outlines.insert(0, '%s\n\n' % subject.strip())
+
         # Write out commit message to a file
         with tempfile.NamedTemporaryFile('w', delete=False) as tf:
             tmpfile = tf.name
             for line in outlines:
                 tf.write(line)
         # Prepare git command
-        cmd = ["git", "commit", "-F", tmpfile]
+        cmd = ["git"]
+        GitApplyTree.gitCommandUserOptions(cmd, commituser, commitemail)
+        cmd += ["commit", "-F", tmpfile]
         # git doesn't like plain email addresses as authors
         if author and '<' in author:
             cmd.append('--author="%s"' % author)
@@ -340,6 +428,7 @@ class GitApplyTree(PatchTree):
     def extractPatches(tree, startcommit, outdir, paths=None):
         import tempfile
         import shutil
+        import re
         tempdir = tempfile.mkdtemp(prefix='oepatch')
         try:
             shellcmd = ["git", "format-patch", startcommit, "-o", tempdir]
@@ -349,14 +438,27 @@ class GitApplyTree(PatchTree):
             out = runcmd(["sh", "-c", " ".join(shellcmd)], tree)
             if out:
                 for srcfile in out.split():
-                    patchlines = []
-                    outfile = None
-                    with open(srcfile, 'r') as f:
-                        for line in f:
-                            if line.startswith(GitApplyTree.patch_line_prefix):
-                                outfile = line.split()[-1].strip()
-                                continue
-                            patchlines.append(line)
+                    for encoding in ['utf-8', 'latin-1']:
+                        patchlines = []
+                        outfile = None
+                        try:
+                            with open(srcfile, 'r', encoding=encoding) as f:
+                                for line in f:
+                                    checkline = line
+                                    if checkline.startswith('Subject: '):
+                                        checkline = re.sub(r'\[.+?\]\s*', '', checkline[9:])
+                                    if checkline.startswith(GitApplyTree.patch_line_prefix):
+                                        outfile = line.split()[-1].strip()
+                                        continue
+                                    if checkline.startswith(GitApplyTree.ignore_commit_prefix):
+                                        continue
+                                    patchlines.append(line)
+                        except UnicodeDecodeError:
+                            continue
+                        break
+                    else:
+                        raise PatchError('Unable to find a character encoding to decode %s' % srcfile)
+
                     if not outfile:
                         outfile = os.path.basename(srcfile)
                     with open(os.path.join(outdir, outfile), 'w') as of:
@@ -383,25 +485,28 @@ class GitApplyTree(PatchTree):
         reporoot = (runcmd("git rev-parse --show-toplevel".split(), self.dir) or '').strip()
         if not reporoot:
             raise Exception("Cannot get repository root for directory %s" % self.dir)
-        commithook = os.path.join(reporoot, '.git', 'hooks', 'commit-msg')
-        commithook_backup = commithook + '.devtool-orig'
-        applyhook = os.path.join(reporoot, '.git', 'hooks', 'applypatch-msg')
-        applyhook_backup = applyhook + '.devtool-orig'
-        if os.path.exists(commithook):
-            shutil.move(commithook, commithook_backup)
-        if os.path.exists(applyhook):
-            shutil.move(applyhook, applyhook_backup)
+        hooks_dir = os.path.join(reporoot, '.git', 'hooks')
+        hooks_dir_backup = hooks_dir + '.devtool-orig'
+        if os.path.lexists(hooks_dir_backup):
+            raise Exception("Git hooks backup directory already exists: %s" % hooks_dir_backup)
+        if os.path.lexists(hooks_dir):
+            shutil.move(hooks_dir, hooks_dir_backup)
+        os.mkdir(hooks_dir)
+        commithook = os.path.join(hooks_dir, 'commit-msg')
+        applyhook = os.path.join(hooks_dir, 'applypatch-msg')
         with open(commithook, 'w') as f:
             # NOTE: the formatting here is significant; if you change it you'll also need to
             # change other places which read it back
             f.write('echo >> $1\n')
             f.write('echo "%s: $PATCHFILE" >> $1\n' % GitApplyTree.patch_line_prefix)
-        os.chmod(commithook, 0755)
+        os.chmod(commithook, 0o755)
         shutil.copy2(commithook, applyhook)
         try:
             patchfilevar = 'PATCHFILE="%s"' % os.path.basename(patch['file'])
             try:
-                shellcmd = [patchfilevar, "git", "--work-tree=%s" % reporoot, "am", "-3", "--keep-cr", "-p%s" % patch['strippath']]
+                shellcmd = [patchfilevar, "git", "--work-tree=%s" % reporoot]
+                self.gitCommandUserOptions(shellcmd, self.commituser, self.commitemail)
+                shellcmd += ["am", "-3", "--keep-cr", "-p%s" % patch['strippath']]
                 return _applypatchhelper(shellcmd, patch, force, reverse, run)
             except CmdError:
                 # Need to abort the git am, or we'll still be within it at the end
@@ -431,7 +536,7 @@ class GitApplyTree(PatchTree):
                 shellcmd = ["git", "reset", "HEAD", self.patchdir]
                 output += runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
                 # Commit the result
-                (tmpfile, shellcmd) = self.prepareCommit(patch['file'])
+                (tmpfile, shellcmd) = self.prepareCommit(patch['file'], self.commituser, self.commitemail)
                 try:
                     shellcmd.insert(0, patchfilevar)
                     output += runcmd(["sh", "-c", " ".join(shellcmd)], self.dir)
@@ -439,17 +544,14 @@ class GitApplyTree(PatchTree):
                     os.remove(tmpfile)
                 return output
         finally:
-            os.remove(commithook)
-            os.remove(applyhook)
-            if os.path.exists(commithook_backup):
-                shutil.move(commithook_backup, commithook)
-            if os.path.exists(applyhook_backup):
-                shutil.move(applyhook_backup, applyhook)
+            shutil.rmtree(hooks_dir)
+            if os.path.lexists(hooks_dir_backup):
+                shutil.move(hooks_dir_backup, hooks_dir)
 
 
 class QuiltTree(PatchSet):
     def _runcmd(self, args, run = True):
-        quiltrc = self.d.getVar('QUILTRCFILE', True)
+        quiltrc = self.d.getVar('QUILTRCFILE')
         if not run:
             return ["quilt"] + ["--quiltrc"] + [quiltrc] + args
         runcmd(["quilt"] + ["--quiltrc"] + [quiltrc] + args, self.dir)
@@ -625,7 +727,7 @@ class UserResolver(Resolver):
             # Patch application failed
             patchcmd = self.patchset.Push(True, False, False)
 
-            t = self.patchset.d.getVar('T', True)
+            t = self.patchset.d.getVar('T')
             if not t:
                 bb.msg.fatal("Build", "T not set")
             bb.utils.mkdirhier(t)
@@ -637,7 +739,7 @@ class UserResolver(Resolver):
                 f.write("echo 'Run \"quilt refresh\" when patch is corrected, press CTRL+D to exit.'\n")
                 f.write("echo ''\n")
                 f.write(" ".join(patchcmd) + "\n")
-            os.chmod(rcfile, 0775)
+            os.chmod(rcfile, 0o775)
 
             self.terminal("bash --rcfile " + rcfile, 'Patch Rejects: Please fix patch rejects manually', self.patchset.d)
 
@@ -667,3 +769,110 @@ class UserResolver(Resolver):
             os.chdir(olddir)
             raise
         os.chdir(olddir)
+
+
+def patch_path(url, fetch, workdir, expand=True):
+    """Return the local path of a patch, or None if this isn't a patch"""
+
+    local = fetch.localpath(url)
+    base, ext = os.path.splitext(os.path.basename(local))
+    if ext in ('.gz', '.bz2', '.xz', '.Z'):
+        if expand:
+            local = os.path.join(workdir, base)
+        ext = os.path.splitext(base)[1]
+
+    urldata = fetch.ud[url]
+    if "apply" in urldata.parm:
+        apply = oe.types.boolean(urldata.parm["apply"])
+        if not apply:
+            return
+    elif ext not in (".diff", ".patch"):
+        return
+
+    return local
+
+def src_patches(d, all=False, expand=True):
+    workdir = d.getVar('WORKDIR')
+    fetch = bb.fetch2.Fetch([], d)
+    patches = []
+    sources = []
+    for url in fetch.urls:
+        local = patch_path(url, fetch, workdir, expand)
+        if not local:
+            if all:
+                local = fetch.localpath(url)
+                sources.append(local)
+            continue
+
+        urldata = fetch.ud[url]
+        parm = urldata.parm
+        patchname = parm.get('pname') or os.path.basename(local)
+
+        apply, reason = should_apply(parm, d)
+        if not apply:
+            if reason:
+                bb.note("Patch %s %s" % (patchname, reason))
+            continue
+
+        patchparm = {'patchname': patchname}
+        if "striplevel" in parm:
+            striplevel = parm["striplevel"]
+        elif "pnum" in parm:
+            #bb.msg.warn(None, "Deprecated usage of 'pnum' url parameter in '%s', please use 'striplevel'" % url)
+            striplevel = parm["pnum"]
+        else:
+            striplevel = '1'
+        patchparm['striplevel'] = striplevel
+
+        patchdir = parm.get('patchdir')
+        if patchdir:
+            patchparm['patchdir'] = patchdir
+
+        localurl = bb.fetch.encodeurl(('file', '', local, '', '', patchparm))
+        patches.append(localurl)
+
+    if all:
+        return sources
+
+    return patches
+
+
+def should_apply(parm, d):
+    if "mindate" in parm or "maxdate" in parm:
+        pn = d.getVar('PN')
+        srcdate = d.getVar('SRCDATE_%s' % pn)
+        if not srcdate:
+            srcdate = d.getVar('SRCDATE')
+
+        if srcdate == "now":
+            srcdate = d.getVar('DATE')
+
+        if "maxdate" in parm and parm["maxdate"] < srcdate:
+            return False, 'is outdated'
+
+        if "mindate" in parm and parm["mindate"] > srcdate:
+            return False, 'is predated'
+
+
+    if "minrev" in parm:
+        srcrev = d.getVar('SRCREV')
+        if srcrev and srcrev < parm["minrev"]:
+            return False, 'applies to later revisions'
+
+    if "maxrev" in parm:
+        srcrev = d.getVar('SRCREV')
+        if srcrev and srcrev > parm["maxrev"]:
+            return False, 'applies to earlier revisions'
+
+    if "rev" in parm:
+        srcrev = d.getVar('SRCREV')
+        if srcrev and parm["rev"] not in srcrev:
+            return False, "doesn't apply to revision"
+
+    if "notrev" in parm:
+        srcrev = d.getVar('SRCREV')
+        if srcrev and parm["notrev"] in srcrev:
+            return False, "doesn't apply to revision"
+
+    return True, None
+

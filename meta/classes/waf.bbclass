@@ -1,5 +1,10 @@
-def get_waf_parallel_make(bb, d):
-    pm = d.getVar('PARALLEL_MAKE', True)
+# avoids build breaks when using no-static-libs.inc
+DISABLE_STATIC = ""
+
+EXTRA_OECONF_append = " ${PACKAGECONFIG_CONFARGS}"
+
+def get_waf_parallel_make(d):
+    pm = d.getVar('PARALLEL_MAKE')
     if pm:
         # look for '-j' and throw other options (e.g. '-l') away
         # because they might have different meaning in bjam
@@ -25,7 +30,7 @@ waf_do_configure() {
 }
 
 waf_do_compile()  {
-	${S}/waf build ${@get_waf_parallel_make('PARALLEL_MAKE', d)}
+	${S}/waf build ${@get_waf_parallel_make(d)}
 }
 
 waf_do_install() {

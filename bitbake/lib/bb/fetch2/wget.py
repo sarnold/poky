@@ -30,14 +30,38 @@ import tempfile
 import subprocess
 import os
 import logging
+import errno
 import bb
-import urllib
-from   bb import data
+import bb.progress
+import urllib.request, urllib.parse, urllib.error
 from   bb.fetch2 import FetchMethod
 from   bb.fetch2 import FetchError
 from   bb.fetch2 import logger
 from   bb.fetch2 import runfetchcmd
+from   bb.utils import export_proxies
 from   bs4 import BeautifulSoup
+from   bs4 import SoupStrainer
+
+class WgetProgressHandler(bb.progress.LineFilterProgressHandler):
+    """
+    Extract progress information from wget output.
+    Note: relies on --progress=dot (with -v or without -q/-nv) being
+    specified on the wget command line.
+    """
+    def __init__(self, d):
+        super(WgetProgressHandler, self).__init__(d)
+        # Send an initial progress event so the bar gets shown
+        self._fire_progress(0)
+
+    def writeline(self, line):
+        percs = re.findall(r'(\d+)%\s+([\d.]+[A-Z])', line)
+        if percs:
+            progress = int(percs[-1][0])
+            rate = percs[-1][1] + '/s'
+            self.update(progress, rate)
+            return False
+        return True
+
 
 class Wget(FetchMethod):
     """Class to fetch urls via 'wget'"""
@@ -60,15 +84,19 @@ class Wget(FetchMethod):
         else:
             ud.basename = os.path.basename(ud.path)
 
-        ud.localfile = data.expand(urllib.unquote(ud.basename), d)
+        ud.localfile = d.expand(urllib.parse.unquote(ud.basename))
+        if not ud.localfile:
+            ud.localfile = d.expand(urllib.parse.unquote(ud.host + ud.path).replace("/", "."))
 
-        self.basecmd = d.getVar("FETCHCMD_wget", True) or "/usr/bin/env wget -t 2 -T 30 -nv --passive-ftp --no-check-certificate"
+        self.basecmd = d.getVar("FETCHCMD_wget") or "/usr/bin/env wget -t 2 -T 30 --passive-ftp --no-check-certificate"
 
-    def _runwget(self, ud, d, command, quiet):
+    def _runwget(self, ud, d, command, quiet, workdir=None):
+
+        progresshandler = WgetProgressHandler(d)
 
         logger.debug(2, "Fetching %s using command '%s'" % (ud.url, command))
-        bb.fetch2.check_network_access(d, command)
-        runfetchcmd(command, d, quiet)
+        bb.fetch2.check_network_access(d, command, ud.url)
+        runfetchcmd(command + ' --progress=dot -v', d, quiet, log=progresshandler, workdir=workdir)
 
     def download(self, ud, d):
         """Fetch urls"""
@@ -76,9 +104,12 @@ class Wget(FetchMethod):
         fetchcmd = self.basecmd
 
         if 'downloadfilename' in ud.parm:
-            dldir = d.getVar("DL_DIR", True)
+            dldir = d.getVar("DL_DIR")
             bb.utils.mkdirhier(os.path.dirname(dldir + os.sep + ud.localfile))
             fetchcmd += " -O " + dldir + os.sep + ud.localfile
+
+        if ud.user and ud.pswd:
+            fetchcmd += " --user=%s --password=%s --auth-no-challenge" % (ud.user, ud.pswd)
 
         uri = ud.url.split(";")[0]
         if os.path.exists(ud.localpath):
@@ -100,12 +131,12 @@ class Wget(FetchMethod):
 
         return True
 
-    def checkstatus(self, fetch, ud, d):
-        import urllib2, socket, httplib
-        from urllib import addinfourl
+    def checkstatus(self, fetch, ud, d, try_again=True):
+        import urllib.request, urllib.error, urllib.parse, socket, http.client
+        from urllib.response import addinfourl
         from bb.fetch2 import FetchConnectionCache
 
-        class HTTPConnectionCache(httplib.HTTPConnection):
+        class HTTPConnectionCache(http.client.HTTPConnection):
             if fetch.connection_cache:
                 def connect(self):
                     """Connect to the host and port specified in __init__."""
@@ -121,7 +152,7 @@ class Wget(FetchMethod):
                     if self._tunnel_host:
                         self._tunnel()
 
-        class CacheHTTPHandler(urllib2.HTTPHandler):
+        class CacheHTTPHandler(urllib.request.HTTPHandler):
             def http_open(self, req):
                 return self.do_open(HTTPConnectionCache, req)
 
@@ -135,7 +166,7 @@ class Wget(FetchMethod):
                     - geturl(): return the original request URL
                     - code: HTTP status code
                 """
-                host = req.get_host()
+                host = req.host
                 if not host:
                     raise urlllib2.URLError('no host given')
 
@@ -143,7 +174,7 @@ class Wget(FetchMethod):
                 h.set_debuglevel(self._debuglevel)
 
                 headers = dict(req.unredirected_hdrs)
-                headers.update(dict((k, v) for k, v in req.headers.items()
+                headers.update(dict((k, v) for k, v in list(req.headers.items())
                             if k not in headers))
 
                 # We want to make an HTTP/1.1 request, but the addinfourl
@@ -160,7 +191,7 @@ class Wget(FetchMethod):
                     headers["Connection"] = "Keep-Alive" # Works for HTTP/1.0
 
                 headers = dict(
-                    (name.title(), val) for name, val in headers.items())
+                    (name.title(), val) for name, val in list(headers.items()))
 
                 if req._tunnel_host:
                     tunnel_headers = {}
@@ -173,12 +204,25 @@ class Wget(FetchMethod):
                     h.set_tunnel(req._tunnel_host, headers=tunnel_headers)
 
                 try:
-                    h.request(req.get_method(), req.get_selector(), req.data, headers)
-                except socket.error, err: # XXX what error?
+                    h.request(req.get_method(), req.selector, req.data, headers)
+                except socket.error as err: # XXX what error?
                     # Don't close connection when cache is enabled.
+                    # Instead, try to detect connections that are no longer
+                    # usable (for example, closed unexpectedly) and remove
+                    # them from the cache.
                     if fetch.connection_cache is None:
                         h.close()
-                    raise urllib2.URLError(err)
+                    elif isinstance(err, OSError) and err.errno == errno.EBADF:
+                        # This happens when the server closes the connection despite the Keep-Alive.
+                        # Apparently urllib then uses the file descriptor, expecting it to be
+                        # connected, when in reality the connection is already gone.
+                        # We let the request fail and expect it to be
+                        # tried once more ("try_again" in check_status()),
+                        # with the dead connection removed from the cache.
+                        # If it still fails, we give up, which can happend for bad
+                        # HTTP proxy settings.
+                        fetch.connection_cache.remove_connection(h.host, h.port)
+                    raise urllib.error.URLError(err)
                 else:
                     try:
                         r = h.getresponse(buffering=True)
@@ -218,55 +262,85 @@ class Wget(FetchMethod):
 
                 return resp
 
-        def export_proxies(d):
-            variables = ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY',
-                            'ftp_proxy', 'FTP_PROXY', 'no_proxy', 'NO_PROXY']
-            exported = False
+        class HTTPMethodFallback(urllib.request.BaseHandler):
+            """
+            Fallback to GET if HEAD is not allowed (405 HTTP error)
+            """
+            def http_error_405(self, req, fp, code, msg, headers):
+                fp.read()
+                fp.close()
 
-            for v in variables:
-                if v in os.environ.keys():
-                    exported = True
-                else:
-                    v_proxy = d.getVar(v, True)
-                    if v_proxy is not None:
-                        os.environ[v] = v_proxy
-                        exported = True
+                newheaders = dict((k,v) for k,v in list(req.headers.items())
+                                  if k.lower() not in ("content-length", "content-type"))
+                return self.parent.open(urllib.request.Request(req.get_full_url(),
+                                                        headers=newheaders,
+                                                        origin_req_host=req.origin_req_host,
+                                                        unverifiable=True))
 
-            return exported
+            """
+            Some servers (e.g. GitHub archives, hosted on Amazon S3) return 403
+            Forbidden when they actually mean 405 Method Not Allowed.
+            """
+            http_error_403 = http_error_405
 
-        def head_method(self):
-            return "HEAD"
 
+        class FixedHTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
+            """
+            urllib2.HTTPRedirectHandler resets the method to GET on redirect,
+            when we want to follow redirects using the original method.
+            """
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                newreq = urllib.request.HTTPRedirectHandler.redirect_request(self, req, fp, code, msg, headers, newurl)
+                newreq.get_method = lambda: req.get_method()
+                return newreq
         exported_proxies = export_proxies(d)
 
+        handlers = [FixedHTTPRedirectHandler, HTTPMethodFallback]
+        if export_proxies:
+            handlers.append(urllib.request.ProxyHandler())
+        handlers.append(CacheHTTPHandler())
         # XXX: Since Python 2.7.9 ssl cert validation is enabled by default
         # see PEP-0476, this causes verification errors on some https servers
         # so disable by default.
         import ssl
-        ssl_context = None
         if hasattr(ssl, '_create_unverified_context'):
-            ssl_context = ssl._create_unverified_context()
-
-        if exported_proxies == True and ssl_context is not None:
-            opener = urllib2.build_opener(urllib2.ProxyHandler, CacheHTTPHandler,
-                    urllib2.HTTPSHandler(context=ssl_context))
-        elif exported_proxies == False and ssl_context is not None:
-            opener = urllib2.build_opener(CacheHTTPHandler,
-                    urllib2.HTTPSHandler(context=ssl_context))
-        elif exported_proxies == True and ssl_context is None:
-            opener = urllib2.build_opener(urllib2.ProxyHandler, CacheHTTPHandler)
-        else:
-            opener = urllib2.build_opener(CacheHTTPHandler)
-
-        urllib2.Request.get_method = head_method
-        urllib2.install_opener(opener)
-
-        uri = ud.url.split(";")[0]
+            handlers.append(urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
+        opener = urllib.request.build_opener(*handlers)
 
         try:
-            urllib2.urlopen(uri)
-        except:
-            return False
+            uri = ud.url.split(";")[0]
+            r = urllib.request.Request(uri)
+            r.get_method = lambda: "HEAD"
+            # Some servers (FusionForge, as used on Alioth) require that the
+            # optional Accept header is set.
+            r.add_header("Accept", "*/*")
+            def add_basic_auth(login_str, request):
+                '''Adds Basic auth to http request, pass in login:password as string'''
+                import base64
+                encodeuser = base64.b64encode(login_str.encode('utf-8')).decode("utf-8")
+                authheader =  "Basic %s" % encodeuser
+                r.add_header("Authorization", authheader)
+
+            if ud.user:
+                add_basic_auth(ud.user, r)
+
+            try:
+                import netrc, urllib.parse
+                n = netrc.netrc()
+                login, unused, password = n.authenticators(urllib.parse.urlparse(uri).hostname)
+                add_basic_auth("%s:%s" % (login, password), r)
+            except (TypeError, ImportError, IOError, netrc.NetrcParseError):
+                 pass
+
+            opener.open(r)
+        except urllib.error.URLError as e:
+            if try_again:
+                logger.debug(2, "checkstatus: trying again")
+                return self.checkstatus(fetch, ud, d, False)
+            else:
+                # debug for now to avoid spamming the logs in e.g. remote sstate searches
+                logger.debug(2, "checkstatus() urlopen failed: %s" % e)
+                return False
         return True
 
     def _parse_path(self, regex, s):
@@ -345,17 +419,16 @@ class Wget(FetchMethod):
         Run fetch checkstatus to get directory information
         """
         f = tempfile.NamedTemporaryFile()
+        with tempfile.TemporaryDirectory(prefix="wget-index-") as workdir, tempfile.NamedTemporaryFile(dir=workdir, prefix="wget-listing-") as f:
+            agent = "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.2.12) Gecko/20101027 Ubuntu/9.10 (karmic) Firefox/3.6.12"
+            fetchcmd = self.basecmd
+            fetchcmd += " -O " + f.name + " --user-agent='" + agent + "' '" + uri + "'"
+            try:
+                self._runwget(ud, d, fetchcmd, True, workdir=workdir)
+                fetchresult = f.read()
+            except bb.fetch2.BBFetchException:
+                fetchresult = ""
 
-        agent = "Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.2.12) Gecko/20101027 Ubuntu/9.10 (karmic) Firefox/3.6.12"
-        fetchcmd = self.basecmd
-        fetchcmd += " -O " + f.name + " --user-agent='" + agent + "' '" + uri + "'"
-        try:
-            self._runwget(ud, d, fetchcmd, True)
-            fetchresult = f.read()
-        except bb.fetch2.BBFetchException:
-            fetchresult = ""
-
-        f.close()
         return fetchresult
 
     def _check_latest_version(self, url, package, package_regex, current_version, ud, d):
@@ -367,7 +440,7 @@ class Wget(FetchMethod):
         version = ['', '', '']
 
         bb.debug(3, "VersionURL: %s" % (url))
-        soup = BeautifulSoup(self._fetch_index(url, ud, d))
+        soup = BeautifulSoup(self._fetch_index(url, ud, d), "html.parser", parse_only=SoupStrainer("a"))
         if not soup:
             bb.debug(3, "*** %s NO SOUP" % (url))
             return ""
@@ -406,10 +479,10 @@ class Wget(FetchMethod):
         version_dir = ['', '', '']
         version = ['', '', '']
 
-        dirver_regex = re.compile("(\D*)((\d+[\.\-_])+(\d+))")
+        dirver_regex = re.compile("(?P<pfx>\D*)(?P<ver>(\d+[\.\-_])+(\d+))")
         s = dirver_regex.search(dirver)
         if s:
-            version_dir[1] = s.group(2)
+            version_dir[1] = s.group('ver')
         else:
             version_dir[1] = dirver
 
@@ -417,16 +490,26 @@ class Wget(FetchMethod):
                 ud.path.split(dirver)[0], ud.user, ud.pswd, {}])
         bb.debug(3, "DirURL: %s, %s" % (dirs_uri, package))
 
-        soup = BeautifulSoup(self._fetch_index(dirs_uri, ud, d))
+        soup = BeautifulSoup(self._fetch_index(dirs_uri, ud, d), "html.parser", parse_only=SoupStrainer("a"))
         if not soup:
             return version[1]
 
         for line in soup.find_all('a', href=True):
             s = dirver_regex.search(line['href'].strip("/"))
             if s:
-                version_dir_new = ['', s.group(2), '']
+                sver = s.group('ver')
+
+                # When prefix is part of the version directory it need to
+                # ensure that only version directory is used so remove previous
+                # directories if exists.
+                #
+                # Example: pfx = '/dir1/dir2/v' and version = '2.5' the expected
+                # result is v2.5.
+                spfx = s.group('pfx').split('/')[-1]
+
+                version_dir_new = ['', sver, '']
                 if self._vercmp(version_dir, version_dir_new) <= 0:
-                    dirver_new = s.group(1) + s.group(2)
+                    dirver_new = spfx + sver
                     path = ud.path.replace(dirver, dirver_new, True) \
                         .split(package)[0]
                     uri = bb.fetch.encodeurl([ud.type, ud.host, path,
@@ -472,7 +555,7 @@ class Wget(FetchMethod):
 
         # src.rpm extension was added only for rpm package. Can be removed if the rpm
         # packaged will always be considered as having to be manually upgraded
-        psuffix_regex = "(tar\.gz|tgz|tar\.bz2|zip|xz|rpm|bz2|orig\.tar\.gz|tar\.xz|src\.tar\.gz|src\.tgz|svnr\d+\.tar\.bz2|stable\.tar\.gz|src\.rpm)"
+        psuffix_regex = "(tar\.gz|tgz|tar\.bz2|zip|xz|tar\.lz|rpm|bz2|orig\.tar\.gz|tar\.xz|src\.tar\.gz|src\.tgz|svnr\d+\.tar\.bz2|stable\.tar\.gz|src\.rpm)"
 
         # match name, version and archive type of a package
         package_regex_comp = re.compile("(?P<name>%s?\.?v?)(?P<pver>%s)(?P<arch>%s)?[\.-](?P<type>%s$)"
@@ -480,7 +563,7 @@ class Wget(FetchMethod):
         self.suffix_regex_comp = re.compile(psuffix_regex)
 
         # compile regex, can be specific by package or generic regex
-        pn_regex = d.getVar('REGEX', True)
+        pn_regex = d.getVar('UPSTREAM_CHECK_REGEX')
         if pn_regex:
             package_custom_regex_comp = re.compile(pn_regex)
         else:
@@ -501,7 +584,7 @@ class Wget(FetchMethod):
         sanity check to ensure same name and type.
         """
         package = ud.path.split("/")[-1]
-        current_version = ['', d.getVar('PV', True), '']
+        current_version = ['', d.getVar('PV'), '']
 
         """possible to have no version in pkg name, such as spectrum-fw"""
         if not re.search("\d+", package):
@@ -516,7 +599,7 @@ class Wget(FetchMethod):
         bb.debug(3, "latest_versionstring, regex: %s" % (package_regex.pattern))
 
         uri = ""
-        regex_uri = d.getVar("REGEX_URI", True)
+        regex_uri = d.getVar("UPSTREAM_CHECK_URI")
         if not regex_uri:
             path = ud.path.split(package)[0]
 
@@ -525,7 +608,7 @@ class Wget(FetchMethod):
             dirver_regex = re.compile("(?P<dirver>[^/]*(\d+\.)*\d+([-_]r\d+)*)/")
             m = dirver_regex.search(path)
             if m:
-                pn = d.getVar('PN', True)
+                pn = d.getVar('PN')
                 dirver = m.group('dirver')
 
                 dirver_pn_regex = re.compile("%s\d?" % (re.escape(pn)))

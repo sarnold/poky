@@ -14,6 +14,7 @@ SRC_URI = "${GNU_MIRROR}/bison/bison-${PV}.tar.xz \
            file://0001-Unset-need_charset_alias-when-building-for-musl.patch \
            file://dont-depend-on-help2man.patch.patch \
            file://0001-src-local.mk-fix-parallel-issue.patch \
+           file://add-with-bisonlocaledir.patch \
 "
 
 # No point in hardcoding path to m4, just use PATH
@@ -22,7 +23,6 @@ EXTRA_OECONF += "M4=m4"
 SRC_URI[md5sum] = "c342201de104cc9ce0a21e0ad10d4021"
 SRC_URI[sha256sum] = "a72428c7917bdf9fa93cb8181c971b6e22834125848cf1d03ce10b1bb0716fe1"
 
-LDFLAGS_prepend_libc-uclibc = " -lrt "
 DEPENDS_class-native = "gettext-minimal-native"
 
 inherit autotools gettext texinfo

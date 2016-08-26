@@ -1,9 +1,4 @@
-try:
-    # Python 2
-    import commands as cmdstatus
-except ImportError:
-    # Python 3
-    import subprocess as cmdstatus
+import subprocess
 
 def read_file(filename):
     try:
@@ -23,30 +18,30 @@ def ifelse(condition, iftrue = True, iffalse = False):
         return iffalse
 
 def conditional(variable, checkvalue, truevalue, falsevalue, d):
-    if d.getVar(variable,1) == checkvalue:
+    if d.getVar(variable) == checkvalue:
         return truevalue
     else:
         return falsevalue
 
 def less_or_equal(variable, checkvalue, truevalue, falsevalue, d):
-    if float(d.getVar(variable,1)) <= float(checkvalue):
+    if float(d.getVar(variable)) <= float(checkvalue):
         return truevalue
     else:
         return falsevalue
 
 def version_less_or_equal(variable, checkvalue, truevalue, falsevalue, d):
-    result = bb.utils.vercmp_string(d.getVar(variable,True), checkvalue)
+    result = bb.utils.vercmp_string(d.getVar(variable), checkvalue)
     if result <= 0:
         return truevalue
     else:
         return falsevalue
 
 def both_contain(variable1, variable2, checkvalue, d):
-    val1 = d.getVar(variable1, True)
-    val2 = d.getVar(variable2, True)
+    val1 = d.getVar(variable1)
+    val2 = d.getVar(variable2)
     val1 = set(val1.split())
     val2 = set(val2.split())
-    if isinstance(checkvalue, basestring):
+    if isinstance(checkvalue, str):
         checkvalue = set(checkvalue.split())
     else:
         checkvalue = set(checkvalue)
@@ -66,8 +61,8 @@ def set_intersect(variable1, variable2, d):
     s3 = set_intersect(s1, s2)
     => s3 = "b c"
     """
-    val1 = set(d.getVar(variable1, True).split())
-    val2 = set(d.getVar(variable2, True).split())
+    val1 = set(d.getVar(variable1).split())
+    val2 = set(d.getVar(variable2).split())
     return " ".join(val1 & val2)
 
 def prune_suffix(var, suffixes, d):
@@ -77,7 +72,7 @@ def prune_suffix(var, suffixes, d):
         if var.endswith(suffix):
             var = var.replace(suffix, "")
 
-    prefix = d.getVar("MLPREFIX", True)
+    prefix = d.getVar("MLPREFIX")
     if prefix and var.startswith(prefix):
         var = var.replace(prefix, "")
 
@@ -85,11 +80,11 @@ def prune_suffix(var, suffixes, d):
 
 def str_filter(f, str, d):
     from re import match
-    return " ".join(filter(lambda x: match(f, x, 0), str.split()))
+    return " ".join([x for x in str.split() if match(f, x, 0)])
 
 def str_filter_out(f, str, d):
     from re import match
-    return " ".join(filter(lambda x: not match(f, x, 0), str.split()))
+    return " ".join([x for x in str.split() if not match(f, x, 0)])
 
 def param_bool(cfg, field, dflt = None):
     """Lookup <field> in <cfg> map and convert it to a boolean; take
@@ -101,6 +96,10 @@ def param_bool(cfg, field, dflt = None):
     elif strvalue in ('no', 'n', 'false', 'f', '0'):
         return False
     raise ValueError("invalid value for boolean parameter '%s': '%s'" % (field, value))
+
+def build_depends_string(depends, task):
+    """Append a taskname to a string of dependencies as used by the [depends] flag"""
+    return " ".join(dep + ":" + task for dep in depends.split())
 
 def inherits(d, *classes):
     """Return True if the metadata inherits any of the specified classes"""
@@ -115,9 +114,9 @@ def features_backfill(var,d):
     # disturbing distributions that have already set DISTRO_FEATURES.
     # Distributions wanting to elide a value in DISTRO_FEATURES_BACKFILL should
     # add the feature to DISTRO_FEATURES_BACKFILL_CONSIDERED
-    features = (d.getVar(var, True) or "").split()
-    backfill = (d.getVar(var+"_BACKFILL", True) or "").split()
-    considered = (d.getVar(var+"_BACKFILL_CONSIDERED", True) or "").split()
+    features = (d.getVar(var) or "").split()
+    backfill = (d.getVar(var+"_BACKFILL") or "").split()
+    considered = (d.getVar(var+"_BACKFILL_CONSIDERED") or "").split()
 
     addfeatures = []
     for feature in backfill:
@@ -127,24 +126,64 @@ def features_backfill(var,d):
     if addfeatures:
         d.appendVar(var, " " + " ".join(addfeatures))
 
+def all_distro_features(d, features, truevalue="1", falsevalue=""):
+    """
+    Returns truevalue if *all* given features are set in DISTRO_FEATURES,
+    else falsevalue. The features can be given as single string or anything
+    that can be turned into a set.
+
+    This is a shorter, more flexible version of
+    bb.utils.contains("DISTRO_FEATURES", features, truevalue, falsevalue, d).
+
+    Without explicit true/false values it can be used directly where
+    Python expects a boolean:
+       if oe.utils.all_distro_features(d, "foo bar"):
+           bb.fatal("foo and bar are mutually exclusive DISTRO_FEATURES")
+
+    With just a truevalue, it can be used to include files that are meant to be
+    used only when requested via DISTRO_FEATURES:
+       require ${@ oe.utils.all_distro_features(d, "foo bar", "foo-and-bar.inc")
+    """
+    return bb.utils.contains("DISTRO_FEATURES", features, truevalue, falsevalue, d)
+
+def any_distro_features(d, features, truevalue="1", falsevalue=""):
+    """
+    Returns truevalue if at least *one* of the given features is set in DISTRO_FEATURES,
+    else falsevalue. The features can be given as single string or anything
+    that can be turned into a set.
+
+    This is a shorter, more flexible version of
+    bb.utils.contains_any("DISTRO_FEATURES", features, truevalue, falsevalue, d).
+
+    Without explicit true/false values it can be used directly where
+    Python expects a boolean:
+       if not oe.utils.any_distro_features(d, "foo bar"):
+           bb.fatal("foo, bar or both must be set in DISTRO_FEATURES")
+
+    With just a truevalue, it can be used to include files that are meant to be
+    used only when requested via DISTRO_FEATURES:
+       require ${@ oe.utils.any_distro_features(d, "foo bar", "foo-or-bar.inc")
+
+    """
+    return bb.utils.contains_any("DISTRO_FEATURES", features, truevalue, falsevalue, d)
 
 def packages_filter_out_system(d):
     """
     Return a list of packages from PACKAGES with the "system" packages such as
     PN-dbg PN-doc PN-locale-eb-gb removed.
     """
-    pn = d.getVar('PN', True)
-    blacklist = map(lambda suffix: pn + suffix, ('', '-dbg', '-dev', '-doc', '-locale', '-staticdev'))
+    pn = d.getVar('PN')
+    blacklist = [pn + suffix for suffix in ('', '-dbg', '-dev', '-doc', '-locale', '-staticdev')]
     localepkg = pn + "-locale-"
     pkgs = []
 
-    for pkg in d.getVar('PACKAGES', True).split():
+    for pkg in d.getVar('PACKAGES').split():
         if pkg not in blacklist and localepkg not in pkg:
             pkgs.append(pkg)
     return pkgs
 
 def getstatusoutput(cmd):
-    return cmdstatus.getstatusoutput(cmd)
+    return subprocess.getstatusoutput(cmd)
 
 
 def trim_version(version, num_parts=2):
@@ -185,35 +224,80 @@ def multiprocess_exec(commands, function):
     def init_worker():
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
+    fails = []
+
+    def failures(res):
+        fails.append(res)
+
     nproc = min(multiprocessing.cpu_count(), len(commands))
     pool = bb.utils.multiprocessingpool(nproc, init_worker)
-    imap = pool.imap(function, commands)
 
     try:
-        res = list(imap)
+        mapresult = pool.map_async(function, commands, error_callback=failures)
+
         pool.close()
         pool.join()
-        results = []
-        for result in res:
-            if result is not None:
-                results.append(result)
-        return results
-
+        results = mapresult.get()
     except KeyboardInterrupt:
         pool.terminate()
         pool.join()
         raise
 
+    if fails:
+        raise fails[0]
+
+    return results
+
 def squashspaces(string):
     import re
     return re.sub("\s+", " ", string).strip()
+
+def format_pkg_list(pkg_dict, ret_format=None):
+    output = []
+
+    if ret_format == "arch":
+        for pkg in sorted(pkg_dict):
+            output.append("%s %s" % (pkg, pkg_dict[pkg]["arch"]))
+    elif ret_format == "file":
+        for pkg in sorted(pkg_dict):
+            output.append("%s %s %s" % (pkg, pkg_dict[pkg]["filename"], pkg_dict[pkg]["arch"]))
+    elif ret_format == "ver":
+        for pkg in sorted(pkg_dict):
+            output.append("%s %s %s" % (pkg, pkg_dict[pkg]["arch"], pkg_dict[pkg]["ver"]))
+    elif ret_format == "deps":
+        for pkg in sorted(pkg_dict):
+            for dep in pkg_dict[pkg]["deps"]:
+                output.append("%s|%s" % (pkg, dep))
+    else:
+        for pkg in sorted(pkg_dict):
+            output.append(pkg)
+
+    return '\n'.join(output)
+
+def host_gcc_version(d):
+    import re, subprocess
+
+    compiler = d.getVar("BUILD_CC")
+    try:
+        env = os.environ.copy()
+        env["PATH"] = d.getVar("PATH")
+        output = subprocess.check_output("%s --version" % compiler, shell=True, env=env).decode("utf-8")
+    except subprocess.CalledProcessError as e:
+        bb.fatal("Error running %s --version: %s" % (compiler, e.output.decode("utf-8")))
+
+    match = re.match(".* (\d\.\d)\.\d.*", output.split('\n')[0])
+    if not match:
+        bb.fatal("Can't get compiler version from %s --version output" % compiler)
+
+    version = match.group(1)
+    return "-%s" % version if version in ("4.8", "4.9") else ""
 
 #
 # Python 2.7 doesn't have threaded pools (just multiprocessing)
 # so implement a version here
 #
 
-from Queue import Queue
+from queue import Queue
 from threading import Thread
 
 class ThreadedWorker(Thread):
@@ -227,7 +311,7 @@ class ThreadedWorker(Thread):
         self.worker_end = worker_end
 
     def run(self):
-        from Queue import Empty
+        from queue import Empty
 
         if self.worker_init is not None:
             self.worker_init(self)
@@ -242,8 +326,8 @@ class ThreadedWorker(Thread):
 
             try:
                 func(self, *args, **kargs)
-            except Exception, e:
-                print e
+            except Exception as e:
+                print(e)
             finally:
                 self.tasks.task_done()
 
@@ -271,3 +355,27 @@ class ThreadedPool:
         self.tasks.join()
         for worker in self.workers:
             worker.join()
+
+def write_ld_so_conf(d):
+    # Some utils like prelink may not have the correct target library paths
+    # so write an ld.so.conf to help them
+    ldsoconf = d.expand("${STAGING_DIR_TARGET}${sysconfdir}/ld.so.conf")
+    if os.path.exists(ldsoconf):
+        bb.utils.remove(ldsoconf)
+    bb.utils.mkdirhier(os.path.dirname(ldsoconf))
+    with open(ldsoconf, "w") as f:
+        f.write(d.getVar("base_libdir") + '\n')
+        f.write(d.getVar("libdir") + '\n')
+
+class ImageQAFailed(bb.build.FuncFailed):
+    def __init__(self, description, name=None, logfile=None):
+        self.description = description
+        self.name = name
+        self.logfile=logfile
+
+    def __str__(self):
+        msg = 'Function failed: %s' % self.name
+        if self.description:
+            msg = msg + ' (%s)' % self.description
+
+        return msg

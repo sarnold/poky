@@ -7,7 +7,6 @@ SECTION = "base"
 DEPENDS = "texinfo-native"
 
 SRC_URI = "${GNU_MIRROR}/cpio/cpio-${PV}.tar.gz \
-    file://statdef.patch \
     "
 
 inherit autotools gettext texinfo
@@ -40,3 +39,5 @@ ALTERNATIVE_LINK_NAME[cpio] = "${base_bindir}/cpio"
 
 ALTERNATIVE_PRIORITY[rmt] = "50"
 ALTERNATIVE_LINK_NAME[rmt] = "${base_sbindir}/rmt"
+
+BBCLASSEXTEND = "native"

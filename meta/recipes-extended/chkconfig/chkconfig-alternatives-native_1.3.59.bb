@@ -10,6 +10,7 @@ LIC_FILES_CHKSUM = "file://COPYING;md5=b234ee4d69f5fce4486a80fdaf4a4263"
 # support for alternatives.
 SRC_URI = "git://github.com/kergoth/chkconfig;branch=sysroot"
 S = "${WORKDIR}/git"
+UPSTREAM_CHECK_GITTAGREGEX = "chkconfig-(?P<pver>(\d+(\.\d+)+))"
 
 SRCREV = "cd437ecbd8986c894442f8fce1e0061e20f04dee"
 PV = "1.3.59+${SRCPV}"
@@ -20,7 +21,7 @@ inherit native
 # into the sysroot, as we may use them to construct the rootfs. As such, we
 # only adjust the paths to match the metadata for the target, not native.
 obey_variables () {
-	sed -i 's,ALTERNATIVES_ROOT,OPKG_OFFLINE_ROOT,' alternatives.c
+	sed -i 's,ALTERNATIVES_ROOT,OPKG_OFFLINE_ROOT,' ${S}/alternatives.c
 }
 
 do_compile () {

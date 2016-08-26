@@ -1,21 +1,39 @@
+"""
+BitBake code parser
+
+Parses actual code (i.e. python and shell) for functions and in-line
+expressions. Used mainly to determine dependencies on other functions
+and variables within the BitBake metadata. Also provides a cache for
+this information in order to speed up processing.
+
+(Not to be confused with the code that parses the metadata itself,
+see lib/bb/parse/ for that).
+
+NOTE: if you change how the parsers gather information you will almost
+certainly need to increment CodeParserCache.CACHE_VERSION below so that
+any existing codeparser cache gets invalidated. Additionally you'll need
+to increment __cache_version__ in cache.py in order to ensure that old
+recipe caches don't trigger "Taskhash mismatch" errors.
+
+"""
+
 import ast
+import sys
 import codegen
 import logging
+import pickle
+import bb.pysh as pysh
 import os.path
 import bb.utils, bb.data
+import hashlib
 from itertools import chain
-from pysh import pyshyacc, pyshlex, sherrors
+from bb.pysh import pyshyacc, pyshlex, sherrors
 from bb.cache import MultiProcessCache
-
 
 logger = logging.getLogger('BitBake.CodeParser')
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
-    logger.info('Importing cPickle failed.  Falling back to a very slow implementation.')
-
+def bbhash(s):
+    return hashlib.md5(s.encode("utf-8")).hexdigest()
 
 def check_indent(codestr):
     """If the code is indented, add a top level piece of code to 'remove' the indentation"""
@@ -28,6 +46,10 @@ def check_indent(codestr):
         return codestr
 
     if codestr[i-1] == "\t" or codestr[i-1] == " ":
+        if codestr[0] == "\n":
+            # Since we're adding a line, we need to remove one line of any empty padding
+            # to ensure line numbers are correct
+            codestr = codestr[1:]
         return "if 1:\n" + codestr
 
     return codestr
@@ -64,11 +86,12 @@ class SetCache(object):
         
         new = []
         for i in items:
-            new.append(intern(i))
+            new.append(sys.intern(i))
         s = frozenset(new)
-        if hash(s) in self.setcache:
-            return self.setcache[hash(s)]
-        self.setcache[hash(s)] = s
+        h = hash(s)
+        if h in self.setcache:
+            return self.setcache[h]
+        self.setcache[h] = s
         return s
 
 codecache = SetCache()
@@ -113,7 +136,11 @@ class shellCacheLine(object):
 
 class CodeParserCache(MultiProcessCache):
     cache_file_name = "bb_codeparser.dat"
-    CACHE_VERSION = 7
+    # NOTE: you must increment this if you change how the parsers gather information,
+    # so that an existing cache gets invalidated. Additionally you'll need
+    # to increment __cache_version__ in cache.py in order to ensure that old
+    # recipe caches don't trigger "Taskhash mismatch" errors.
+    CACHE_VERSION = 9
 
     def __init__(self):
         MultiProcessCache.__init__(self)
@@ -163,11 +190,11 @@ codeparsercache = CodeParserCache()
 def parser_cache_init(d):
     codeparsercache.init_cache(d)
 
-def parser_cache_save(d):
-    codeparsercache.save_extras(d)
+def parser_cache_save():
+    codeparsercache.save_extras()
 
-def parser_cache_savemerge(d):
-    codeparsercache.save_merge(d)
+def parser_cache_savemerge():
+    codeparsercache.save_merge()
 
 Logger = logging.getLoggerClass()
 class BufferedLogger(Logger):
@@ -182,12 +209,15 @@ class BufferedLogger(Logger):
 
     def flush(self):
         for record in self.buffer:
-            self.target.handle(record)
+            if self.target.isEnabledFor(record.levelno):
+                self.target.handle(record)
         self.buffer = []
 
 class PythonParser():
     getvars = (".getVar", ".appendVar", ".prependVar")
-    containsfuncs = ("bb.utils.contains", "base_contains", "bb.utils.contains_any")
+    getvarflags = (".getVarFlag", ".appendVarFlag", ".prependVarFlag")
+    containsfuncs = ("bb.utils.contains", "base_contains")
+    containsanyfuncs = ("bb.utils.contains_any",  "bb.utils.filter")
     execfuncs = ("bb.build.exec_func", "bb.build.exec_task")
 
     def warn(self, func, arg):
@@ -206,17 +236,37 @@ class PythonParser():
 
     def visit_Call(self, node):
         name = self.called_node_name(node.func)
-        if name and name.endswith(self.getvars) or name in self.containsfuncs:
+        if name and (name.endswith(self.getvars) or name.endswith(self.getvarflags) or name in self.containsfuncs or name in self.containsanyfuncs):
             if isinstance(node.args[0], ast.Str):
                 varname = node.args[0].s
                 if name in self.containsfuncs and isinstance(node.args[1], ast.Str):
                     if varname not in self.contains:
                         self.contains[varname] = set()
                     self.contains[varname].add(node.args[1].s)
-                else:                      
-                    self.references.add(node.args[0].s)
+                elif name in self.containsanyfuncs and isinstance(node.args[1], ast.Str):
+                    if varname not in self.contains:
+                        self.contains[varname] = set()
+                    self.contains[varname].update(node.args[1].s.split())
+                elif name.endswith(self.getvarflags):
+                    if isinstance(node.args[1], ast.Str):
+                        self.references.add('%s[%s]' % (varname, node.args[1].s))
+                    else:
+                        self.warn(node.func, node.args[1])
+                else:
+                    self.references.add(varname)
             else:
                 self.warn(node.func, node.args[0])
+        elif name and name.endswith(".expand"):
+            if isinstance(node.args[0], ast.Str):
+                value = node.args[0].s
+                d = bb.data.init()
+                parser = d.expandWithRefs(value, self.name)
+                self.references |= parser.references
+                self.execs |= parser.execs
+                for varname in parser.contains:
+                    if varname not in self.contains:
+                        self.contains[varname] = set()
+                    self.contains[varname] |= parser.contains[varname]
         elif name in self.execfuncs:
             if isinstance(node.args[0], ast.Str):
                 self.var_execs.add(node.args[0].s)
@@ -239,6 +289,7 @@ class PythonParser():
                 break
 
     def __init__(self, name, log):
+        self.name = name
         self.var_execs = set()
         self.contains = {}
         self.execs = set()
@@ -248,11 +299,11 @@ class PythonParser():
         self.unhandled_message = "in call of %s, argument '%s' is not a string literal"
         self.unhandled_message = "while parsing %s, %s" % (name, self.unhandled_message)
 
-    def parse_python(self, node):
+    def parse_python(self, node, lineno=0, filename="<string>"):
         if not node or not node.strip():
             return
 
-        h = hash(str(node))
+        h = bbhash(str(node))
 
         if h in codeparsercache.pythoncache:
             self.references = set(codeparsercache.pythoncache[h].refs)
@@ -270,7 +321,9 @@ class PythonParser():
                 self.contains[i] = set(codeparsercache.pythoncacheextras[h].contains[i])
             return
 
-        code = compile(check_indent(str(node)), "<string>", "exec",
+        # We can't add to the linenumbers for compile, we can pad to the correct number of blank lines though
+        node = "\n" * int(lineno) + node
+        code = compile(check_indent(str(node)), filename, "exec",
                        ast.PyCF_ONLY_AST)
 
         for n in ast.walk(code):
@@ -295,7 +348,7 @@ class ShellParser():
         commands it executes.
         """
 
-        h = hash(str(value))
+        h = bbhash(str(value))
 
         if h in codeparsercache.shellcache:
             self.execs = set(codeparsercache.shellcache[h].execs)
@@ -318,8 +371,7 @@ class ShellParser():
         except pyshlex.NeedMore:
             raise sherrors.ShellSyntaxError("Unexpected EOF")
 
-        for token in tokens:
-            self.process_tokens(token)
+        self.process_tokens(tokens)
 
     def process_tokens(self, tokens):
         """Process a supplied portion of the syntax tree as returned by
@@ -365,18 +417,24 @@ class ShellParser():
             "case_clause": case_clause,
         }
 
-        for token in tokens:
-            name, value = token
-            try:
-                more_tokens, words = token_handlers[name](value)
-            except KeyError:
-                raise NotImplementedError("Unsupported token type " + name)
+        def process_token_list(tokens):
+            for token in tokens:
+                if isinstance(token, list):
+                    process_token_list(token)
+                    continue
+                name, value = token
+                try:
+                    more_tokens, words = token_handlers[name](value)
+                except KeyError:
+                    raise NotImplementedError("Unsupported token type " + name)
 
-            if more_tokens:
-                self.process_tokens(more_tokens)
+                if more_tokens:
+                    self.process_tokens(more_tokens)
 
-            if words:
-                self.process_words(words)
+                if words:
+                    self.process_words(words)
+
+        process_token_list(tokens)
 
     def process_words(self, words):
         """Process a set of 'words' in pyshyacc parlance, which includes

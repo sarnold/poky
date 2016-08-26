@@ -13,25 +13,27 @@ SECTION = "libs"
 inherit distro_features_check
 ANY_OF_DISTRO_FEATURES = "${GTK2DISTROFEATURES}"
 
+# This picks stable releases in the 2.x series (but not 2.90 onwards,
+# which were GNOME 3 betas).
+UPSTREAM_CHECK_REGEX = "(?P<pver>2\.([0-8]*[02468])+(\.\d+)+)"
+
 X11DEPENDS = "virtual/libx11 libxext libxcursor libxrandr libxdamage libxrender libxcomposite"
-DEPENDS = "glib-2.0 pango atk jpeg libpng gdk-pixbuf-native docbook-utils-native \
+DEPENDS = "glib-2.0 pango atk jpeg libpng gdk-pixbuf-native \
  cairo gdk-pixbuf"
 
-PACKAGECONFIG ??= "${@bb.utils.contains('DISTRO_FEATURES', 'x11', 'x11', '', d)} \
-           ${@bb.utils.contains('DISTRO_FEATURES', 'directfb', 'directfb', '', d)} \
-"
+PACKAGECONFIG ??= "${@bb.utils.filter('DISTRO_FEATURES', 'directfb x11', d)}"
 
 PACKAGECONFIG[x11] = "--with-x=yes --with-gdktarget=x11,--with-x=no,${X11DEPENDS}"
 # without --with-gdktarget=directfb it will check for cairo-xlib which isn't available without X11 DISTRO_FEATURE
 PACKAGECONFIG[directfb] = "--with-gdktarget=directfb,,directfb"
+PACKAGECONFIG[manpages] = "--enable-man --with-xml-catalog=${STAGING_ETCDIR_NATIVE}/xml/catalog.xml, --disable-man, libxslt-native xmlto-native"
 
-inherit autotools gtk-doc pkgconfig update-alternatives gtk-immodules-cache
+inherit autotools gtk-doc pkgconfig update-alternatives gtk-immodules-cache gobject-introspection manpages
 
 PACKAGES += "libgail gtk-demo"
 
-FILES_${PN} = "${bindir}/gtk-update-icon-cache-2.0 \
+FILES_${PN} += "${bindir}/gtk-update-icon-cache-2.0 \
 	${bindir}/gtk-query-immodules-2.0 \
-	${libdir}/lib*${SOLIBS} \
 	${datadir}/themes ${sysconfdir} \
 	${libdir}/gtk-2.0/${LIBV}/engines/libpixmap.so"
 
@@ -45,13 +47,6 @@ FILES_${PN}-dev += " \
 	${libdir}/gtk-2.0/${LIBV}/engines/*.la \
 	${bindir}/gtk-builder-convert"
 
-FILES_${PN}-dbg += " \
-	${libdir}/gtk-2.0/modules/.debug/* \
-        ${libdir}/gtk-2.0/${LIBV}/loaders/.debug/* \
-	${libdir}/gtk-2.0/${LIBV}/immodules/.debug/* \
-	${libdir}/gtk-2.0/${LIBV}/engines/.debug/* \
-	${libdir}/gtk-2.0/${LIBV}/printbackends/.debug/*"
-
 FILES_gtk-demo = " \
  ${datadir}/gtk-2.0/demo/* \
  ${bindir}/gtk-demo \
@@ -62,7 +57,14 @@ FILES_libgail = " \
 	${libdir}/gtk-2.0/modules/libferret.so \
 	"
 
-GTKBASE_RRECOMMENDS ?= "liberation-fonts gdk-pixbuf-loader-png gdk-pixbuf-loader-jpeg gdk-pixbuf-loader-gif gdk-pixbuf-loader-xpm shared-mime-info"
+GTKBASE_RRECOMMENDS ?= "liberation-fonts \
+                        gdk-pixbuf-loader-png \
+                        gdk-pixbuf-loader-jpeg \
+                        gdk-pixbuf-loader-gif \
+                        gdk-pixbuf-loader-xpm \
+                        shared-mime-info \
+                        gnome-theme-adwaita \
+                        "
 GTKGLIBC_RRECOMMENDS ?= "${GTKBASE_RRECOMMENDS} glibc-gconv-iso8859-1"
 
 RRECOMMENDS_${PN} = "${GTKBASE_RRECOMMENDS}"
@@ -70,6 +72,10 @@ RRECOMMENDS_${PN}_libc-glibc = "${GTKGLIBC_RRECOMMENDS}"
 
 ALTERNATIVE_${PN} = "gtk-update-icon-cache"
 ALTERNATIVE_TARGET[gtk-update-icon-cache] = "${bindir}/gtk-update-icon-cache-2.0"
+
+do_compile_prepend() {
+        export GIR_EXTRA_LIBS_PATH="${B}/gdk/.libs"
+}
 
 do_install () {
 	autotools_do_install

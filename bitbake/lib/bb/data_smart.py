@@ -39,8 +39,8 @@ from bb.COW  import COWDictBase
 logger = logging.getLogger("BitBake.Data")
 
 __setvar_keyword__ = ["_append", "_prepend", "_remove"]
-__setvar_regexp__ = re.compile('(?P<base>.*?)(?P<keyword>_append|_prepend|_remove)(_(?P<add>.*))?$')
-__expand_var_regexp__ = re.compile(r"\${[^{}@\n\t ]+}")
+__setvar_regexp__ = re.compile('(?P<base>.*?)(?P<keyword>_append|_prepend|_remove)(_(?P<add>[^A-Z]*))?$')
+__expand_var_regexp__ = re.compile(r"\${[^{}@\n\t :]+}")
 __expand_python_regexp__ = re.compile(r"\${@.+?}")
 
 def infer_caller_details(loginfo, parent = False, varval = True):
@@ -108,7 +108,7 @@ class VariableParse:
                 varparse = self.d.expand_cache[key]
                 var = varparse.value
             else:
-                var = self.d.getVarFlag(key, "_content", True)
+                var = self.d.getVarFlag(key, "_content")
             self.references.add(key)
             if var is not None:
                 return var
@@ -116,13 +116,21 @@ class VariableParse:
                 return match.group()
 
     def python_sub(self, match):
-            code = match.group()[3:-1]
+            if isinstance(match, str):
+                code = match
+            else:
+                code = match.group()[3:-1]
+
+            if "_remote_data" in self.d:
+                connector = self.d["_remote_data"]
+                return connector.expandPythonRef(self.varname, code, self.d)
+
             codeobj = compile(code.strip(), self.varname or "<expansion>", "eval")
 
             parser = bb.codeparser.PythonParser(self.varname, logger)
             parser.parse_python(code)
             if self.varname:
-                vardeps = self.d.getVarFlag(self.varname, "vardeps", True)
+                vardeps = self.d.getVarFlag(self.varname, "vardeps")
                 if vardeps is None:
                     parser.log.flush()
             else:
@@ -135,7 +143,7 @@ class VariableParse:
                     self.contains[k] = parser.contains[k].copy()
                 else:
                     self.contains[k].update(parser.contains[k])
-            value = utils.better_eval(codeobj, DataContext(self.d))
+            value = utils.better_eval(codeobj, DataContext(self.d), {'d' : self.d})
             return str(value)
 
 
@@ -146,8 +154,8 @@ class DataContext(dict):
         self['d'] = metadata
 
     def __missing__(self, key):
-        value = self.metadata.getVar(key, True)
-        if value is None or self.metadata.getVarFlag(key, 'func'):
+        value = self.metadata.getVar(key)
+        if value is None or self.metadata.getVarFlag(key, 'func', False):
             raise KeyError(key)
         else:
             return value
@@ -222,6 +230,19 @@ class VariableHistory(object):
         new.variables = self.variables.copy()
         return new
 
+    def __getstate__(self):
+        vardict = {}
+        for k, v in self.variables.iteritems():
+            vardict[k] = v
+        return {'dataroot': self.dataroot,
+                'variables': vardict}
+
+    def __setstate__(self, state):
+        self.dataroot = state['dataroot']
+        self.variables = COWDictBase.copy()
+        for k, v in state['variables'].items():
+            self.variables[k] = v
+
     def record(self, *kwonly, **loginfo):
         if not self.dataroot._tracking:
             return
@@ -247,10 +268,15 @@ class VariableHistory(object):
         self.variables[var].append(loginfo.copy())
 
     def variable(self, var):
-        if var in self.variables:
-            return self.variables[var]
+        remote_connector = self.dataroot.getVar('_remote_data', False)
+        if remote_connector:
+            varhistory = remote_connector.getVarHistory(var)
         else:
-            return []
+            varhistory = []
+
+        if var in self.variables:
+            varhistory.extend(self.variables[var])
+        return varhistory
 
     def emit(self, var, oval, val, o, d):
         history = self.variable(var)
@@ -318,7 +344,7 @@ class VariableHistory(object):
         the files in which they were added.
         """
         history = self.variable(var)
-        finalitems = (d.getVar(var, True) or '').split()
+        finalitems = (d.getVar(var) or '').split()
         filemap = {}
         isset = False
         for event in history:
@@ -372,7 +398,7 @@ class DataSmart(MutableMapping):
 
     def expandWithRefs(self, s, varname):
 
-        if not isinstance(s, basestring): # sanity check
+        if not isinstance(s, str): # sanity check
             return VariableParse(varname, self, s)
 
         if varname and varname in self.expand_cache:
@@ -384,7 +410,12 @@ class DataSmart(MutableMapping):
             olds = s
             try:
                 s = __expand_var_regexp__.sub(varparse.var_sub, s)
-                s = __expand_python_regexp__.sub(varparse.python_sub, s)
+                try:
+                    s = __expand_python_regexp__.sub(varparse.python_sub, s)
+                except SyntaxError as e:
+                    # Likely unmatched brackets, just don't expand the expression
+                    if e.msg != "EOL while scanning string literal":
+                        raise
                 if s == olds:
                     break
             except ExpansionError:
@@ -392,8 +423,7 @@ class DataSmart(MutableMapping):
             except bb.parse.SkipRecipe:
                 raise
             except Exception as exc:
-                exc_class, exc, tb = sys.exc_info()
-                raise ExpansionError, ExpansionError(varname, s, exc), tb
+                raise ExpansionError(varname, s, exc) from exc
 
         varparse.value = s
 
@@ -422,11 +452,11 @@ class DataSmart(MutableMapping):
             # Can end up here recursively so setup dummy values
             self.overrides = []
             self.overridesset = set()
-            self.overrides = (self.getVar("OVERRIDES", True) or "").split(":") or []
+            self.overrides = (self.getVar("OVERRIDES") or "").split(":") or []
             self.overridesset = set(self.overrides)
             self.inoverride = False
             self.expand_cache = {}
-            newoverrides = (self.getVar("OVERRIDES", True) or "").split(":") or []
+            newoverrides = (self.getVar("OVERRIDES") or "").split(":") or []
             if newoverrides == self.overrides:
                 break
             self.overrides = newoverrides
@@ -443,17 +473,22 @@ class DataSmart(MutableMapping):
         dest = self.dict
         while dest:
             if var in dest:
-                return dest[var]
+                return dest[var], self.overridedata.get(var, None)
+
+            if "_remote_data" in dest:
+                connector = dest["_remote_data"]["_content"]
+                return connector.getVar(var)
 
             if "_data" not in dest:
                 break
             dest = dest["_data"]
+        return None, self.overridedata.get(var, None)
 
     def _makeShadowCopy(self, var):
         if var in self.dict:
             return
 
-        local_var = self._findVar(var)
+        local_var, _ = self._findVar(var)
 
         if local_var:
             self.dict[var] = copy.copy(local_var)
@@ -467,6 +502,12 @@ class DataSmart(MutableMapping):
         if 'parsing' in loginfo:
             parsing=True
 
+        if '_remote_data' in self.dict:
+            connector = self.dict["_remote_data"]["_content"]
+            res = connector.setVar(var, value)
+            if not res:
+                return
+
         if 'op' not in loginfo:
             loginfo['op'] = "set"
         self.expand_cache = {}
@@ -475,7 +516,7 @@ class DataSmart(MutableMapping):
             base = match.group('base')
             keyword = match.group("keyword")
             override = match.group('add')
-            l = self.getVarFlag(base, keyword) or []
+            l = self.getVarFlag(base, keyword, False) or []
             l.append([value, override])
             self.setVarFlag(base, keyword, l, ignore=True)
             # And cause that to be recorded:
@@ -505,6 +546,8 @@ class DataSmart(MutableMapping):
                 del self.dict[var]["_append"]
             if "_prepend" in self.dict[var]:
                 del self.dict[var]["_prepend"]
+            if "_remove" in self.dict[var]:
+                del self.dict[var]["_remove"]
             if var in self.overridedata:
                 active = []
                 self.need_overrides()
@@ -537,7 +580,7 @@ class DataSmart(MutableMapping):
             nextnew = set()
             self.overridevars.update(new)
             for i in new:
-                vardata = self.expandWithRefs(self.getVar(i, True), i)
+                vardata = self.expandWithRefs(self.getVar(i), i)
                 nextnew.update(vardata.references)
                 nextnew.update(vardata.contains.keys())
             new = nextnew
@@ -561,13 +604,19 @@ class DataSmart(MutableMapping):
                 if len(shortvar) == 0:
                     override = None
 
-    def getVar(self, var, expand=False, noweakdefault=False, parsing=False):
+    def getVar(self, var, expand=True, noweakdefault=False, parsing=False):
         return self.getVarFlag(var, "_content", expand, noweakdefault, parsing)
 
     def renameVar(self, key, newkey, **loginfo):
         """
         Rename the variable key to newkey
         """
+        if '_remote_data' in self.dict:
+            connector = self.dict["_remote_data"]["_content"]
+            res = connector.renameVar(key, newkey)
+            if not res:
+                return
+
         val = self.getVar(key, 0, parsing=True)
         if val is not None:
             loginfo['variable'] = newkey
@@ -577,11 +626,11 @@ class DataSmart(MutableMapping):
             self.setVar(newkey, val, ignore=True, parsing=True)
 
         for i in (__setvar_keyword__):
-            src = self.getVarFlag(key, i)
+            src = self.getVarFlag(key, i, False)
             if src is None:
                 continue
 
-            dest = self.getVarFlag(newkey, i) or []
+            dest = self.getVarFlag(newkey, i, False) or []
             dest.extend(src)
             self.setVarFlag(newkey, i, dest, ignore=True)
 
@@ -611,6 +660,12 @@ class DataSmart(MutableMapping):
         self.setVar(var + "_prepend", value, ignore=True, parsing=True)
 
     def delVar(self, var, **loginfo):
+        if '_remote_data' in self.dict:
+            connector = self.dict["_remote_data"]["_content"]
+            res = connector.delVar(var)
+            if not res:
+                return
+
         loginfo['detail'] = ""
         loginfo['op'] = 'del'
         self.varhistory.record(**loginfo)
@@ -637,6 +692,12 @@ class DataSmart(MutableMapping):
                          override = None
 
     def setVarFlag(self, var, flag, value, **loginfo):
+        if '_remote_data' in self.dict:
+            connector = self.dict["_remote_data"]["_content"]
+            res = connector.setVarFlag(var, flag, value)
+            if not res:
+                return
+
         self.expand_cache = {}
         if 'op' not in loginfo:
             loginfo['op'] = "set"
@@ -658,14 +719,14 @@ class DataSmart(MutableMapping):
                 self.dict["__exportlist"]["_content"] = set()
             self.dict["__exportlist"]["_content"].add(var)
 
-    def getVarFlag(self, var, flag, expand=False, noweakdefault=False, parsing=False):
-        local_var = self._findVar(var)
+    def getVarFlag(self, var, flag, expand=True, noweakdefault=False, parsing=False):
+        local_var, overridedata = self._findVar(var)
         value = None
-        if flag == "_content" and var in self.overridedata and not parsing:
+        if flag == "_content" and overridedata is not None and not parsing:
             match = False
             active = {}
             self.need_overrides()
-            for (r, o) in self.overridedata[var]:
+            for (r, o) in overridedata:
                 # What about double overrides both with "_" in the name?
                 if o in self.overridesset:
                     active[o] = r
@@ -687,7 +748,7 @@ class DataSmart(MutableMapping):
                             match = active[a]
                             del active[a]
             if match:
-                value = self.getVar(match)
+                value = self.getVar(match, False)
 
         if local_var is not None and value is None:
             if flag in local_var:
@@ -744,18 +805,25 @@ class DataSmart(MutableMapping):
                 if match:
                     removes.extend(self.expand(r).split())
 
-            filtered = filter(lambda v: v not in removes,
-                              value.split())
-            value = " ".join(filtered)
-            if expand and var in self.expand_cache:
-                 # We need to ensure the expand cache has the correct value
-                 # flag == "_content" here
-                self.expand_cache[var].value = value
+            if removes:
+                filtered = filter(lambda v: v not in removes,
+                                  value.split())
+                value = " ".join(filtered)
+                if expand and var in self.expand_cache:
+                    # We need to ensure the expand cache has the correct value
+                    # flag == "_content" here
+                    self.expand_cache[var].value = value
         return value
 
     def delVarFlag(self, var, flag, **loginfo):
+        if '_remote_data' in self.dict:
+            connector = self.dict["_remote_data"]["_content"]
+            res = connector.delVarFlag(var, flag)
+            if not res:
+                return
+
         self.expand_cache = {}
-        local_var = self._findVar(var)
+        local_var, _ = self._findVar(var)
         if not local_var:
             return
         if not var in self.dict:
@@ -798,7 +866,7 @@ class DataSmart(MutableMapping):
             self.dict[var][i] = flags[i]
 
     def getVarFlags(self, var, expand = False, internalflags=False):
-        local_var = self._findVar(var)
+        local_var, _ = self._findVar(var)
         flags = {}
 
         if local_var:
@@ -840,7 +908,7 @@ class DataSmart(MutableMapping):
         data = DataSmart()
         data.dict["_data"] = self.dict
         data.varhistory = self.varhistory.copy()
-        data.varhistory.datasmart = data
+        data.varhistory.dataroot = data
         data.inchistory = self.inchistory.copy()
 
         data._tracking = self._tracking
@@ -871,7 +939,7 @@ class DataSmart(MutableMapping):
 
     def localkeys(self):
         for key in self.dict:
-            if key != '_data':
+            if key not in ['_data', '_remote_data']:
                 yield key
 
     def __iter__(self):
@@ -880,7 +948,7 @@ class DataSmart(MutableMapping):
         def keylist(d):        
             klist = set()
             for key in d:
-                if key == "_data":
+                if key in ["_data", "_remote_data"]:
                     continue
                 if key in deleted:
                     continue
@@ -893,6 +961,13 @@ class DataSmart(MutableMapping):
 
             if "_data" in d:
                 klist |= keylist(d["_data"])
+
+            if "_remote_data" in d:
+                connector = d["_remote_data"]["_content"]
+                for key in connector.getKeys():
+                    if key in deleted:
+                        continue
+                    klist.add(key)
 
             return klist
 
@@ -912,7 +987,7 @@ class DataSmart(MutableMapping):
              yield k
 
     def __len__(self):
-        return len(frozenset(self))
+        return len(frozenset(iter(self)))
 
     def __getitem__(self, item):
         value = self.getVar(item, False)
@@ -931,9 +1006,8 @@ class DataSmart(MutableMapping):
         data = {}
         d = self.createCopy()
         bb.data.expandKeys(d)
-        bb.data.update_data(d)
 
-        config_whitelist = set((d.getVar("BB_HASHCONFIG_WHITELIST", True) or "").split())
+        config_whitelist = set((d.getVar("BB_HASHCONFIG_WHITELIST") or "").split())
         keys = set(key for key in iter(d) if not key.startswith("__"))
         for key in keys:
             if key in config_whitelist:
@@ -952,13 +1026,12 @@ class DataSmart(MutableMapping):
 
         for key in ["__BBTASKS", "__BBANONFUNCS", "__BBHANDLERS"]:
             bb_list = d.getVar(key, False) or []
-            bb_list.sort()
             data.update({key:str(bb_list)})
 
             if key == "__BBANONFUNCS":
                 for i in bb_list:
-                    value = d.getVar(i, True) or ""
+                    value = d.getVar(i, False) or ""
                     data.update({i:value})
 
         data_str = str([(k, data[k]) for k in sorted(data.keys())])
-        return hashlib.md5(data_str).hexdigest()
+        return hashlib.md5(data_str.encode("utf-8")).hexdigest()

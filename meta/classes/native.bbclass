@@ -42,7 +42,7 @@ HOST_AS_ARCH = "${BUILD_AS_ARCH}"
 
 CPPFLAGS = "${BUILD_CPPFLAGS}"
 CFLAGS = "${BUILD_CFLAGS}"
-CXXFLAGS = "${BUILD_CFLAGS}"
+CXXFLAGS = "${BUILD_CXXFLAGS}"
 LDFLAGS = "${BUILD_LDFLAGS}"
 LDFLAGS_build-darwin = "-L${STAGING_LIBDIR_NATIVE} "
 
@@ -87,8 +87,7 @@ datadir = "${STAGING_DATADIR_NATIVE}"
 
 baselib = "lib"
 
-# Libtool's default paths are correct for the native machine
-lt_cv_sys_lib_dlsearch_path_spec[unexport] = "1"
+export lt_cv_sys_lib_dlsearch_path_spec = "${libdir} ${base_libdir} /lib /lib64 /usr/lib /usr/lib64"
 
 NATIVE_PACKAGE_PATH_SUFFIX ?= ""
 bindir .= "${NATIVE_PACKAGE_PATH_SUFFIX}"
@@ -96,7 +95,7 @@ libdir .= "${NATIVE_PACKAGE_PATH_SUFFIX}"
 libexecdir .= "${NATIVE_PACKAGE_PATH_SUFFIX}"
 
 do_populate_sysroot[sstate-inputdirs] = "${SYSROOT_DESTDIR}/${STAGING_DIR_NATIVE}/"
-do_populate_sysroot[sstate-outputdirs] = "${STAGING_DIR_NATIVE}/"
+do_populate_sysroot[sstate-outputdirs] = "${COMPONENTS_DIR}/${PACKAGE_ARCH}/${PN}"
 
 # Since we actually install these into situ there is no staging prefix
 STAGING_DIR_HOST = ""
@@ -106,27 +105,40 @@ PKG_CONFIG_DIR = "${libdir}/pkgconfig"
 EXTRA_NATIVE_PKGCONFIG_PATH ?= ""
 PKG_CONFIG_PATH .= "${EXTRA_NATIVE_PKGCONFIG_PATH}"
 PKG_CONFIG_SYSROOT_DIR = ""
+PKG_CONFIG_SYSTEM_LIBRARY_PATH[unexport] = "1"
+PKG_CONFIG_SYSTEM_INCLUDE_PATH[unexport] = "1"
 
-# we dont want libc-uclibc or libc-glibc to kick in for native recipes
+# we dont want libc-*libc to kick in for native recipes
 LIBCOVERRIDE = ""
 CLASSOVERRIDE = "class-native"
 MACHINEOVERRIDES = ""
+MACHINE_FEATURES = ""
 
 PATH_prepend = "${COREBASE}/scripts/native-intercept:"
 
+# This class encodes staging paths into its scripts data so can only be
+# reused if we manipulate the paths.
+SSTATE_SCAN_CMD ?= "${SSTATE_SCAN_CMD_NATIVE}"
+
 python native_virtclass_handler () {
-    classextend = e.data.getVar('BBCLASSEXTEND', True) or ""
-    if "native" not in classextend:
+    pn = e.data.getVar("PN")
+    if not pn.endswith("-native"):
         return
 
-    pn = e.data.getVar("PN", True)
-    if not pn.endswith("-native"):
+    # Set features here to prevent appends and distro features backfill
+    # from modifying native distro features
+    features = set(d.getVar("DISTRO_FEATURES_NATIVE").split())
+    filtered = set(bb.utils.filter("DISTRO_FEATURES", d.getVar("DISTRO_FEATURES_FILTER_NATIVE"), d).split())
+    d.setVar("DISTRO_FEATURES", " ".join(sorted(features | filtered)))
+
+    classextend = e.data.getVar('BBCLASSEXTEND') or ""
+    if "native" not in classextend:
         return
 
     def map_dependencies(varname, d, suffix = ""):
         if suffix:
             varname = varname + "_" + suffix
-        deps = d.getVar(varname, True)
+        deps = d.getVar(varname)
         if not deps:
             return
         deps = bb.utils.explode_deps(deps)
@@ -145,14 +157,14 @@ python native_virtclass_handler () {
     e.data.setVar("OVERRIDES", e.data.getVar("OVERRIDES", False) + ":virtclass-native")
 
     map_dependencies("DEPENDS", e.data)
-    for pkg in [e.data.getVar("PN", True), "", "${PN}"]:
+    for pkg in [e.data.getVar("PN"), "", "${PN}"]:
         map_dependencies("RDEPENDS", e.data, pkg)
         map_dependencies("RRECOMMENDS", e.data, pkg)
         map_dependencies("RSUGGESTS", e.data, pkg)
         map_dependencies("RPROVIDES", e.data, pkg)
         map_dependencies("RREPLACES", e.data, pkg)
 
-    provides = e.data.getVar("PROVIDES", True)
+    provides = e.data.getVar("PROVIDES")
     nprovides = []
     for prov in provides.split():
         if prov.find(pn) != -1:
@@ -169,13 +181,12 @@ python native_virtclass_handler () {
 addhandler native_virtclass_handler
 native_virtclass_handler[eventmask] = "bb.event.RecipePreFinalise"
 
-deltask package
-deltask packagedata
-deltask package_qa
-deltask package_write_ipk
-deltask package_write_deb
-deltask package_write_rpm
-deltask package_write
+python do_addto_recipe_sysroot () {
+    bb.build.exec_func("extend_recipe_sysroot", d)
+}
+addtask addto_recipe_sysroot after do_populate_sysroot
+
+inherit nopackages
 
 do_packagedata[stamp-extra-info] = ""
 do_populate_sysroot[stamp-extra-info] = ""

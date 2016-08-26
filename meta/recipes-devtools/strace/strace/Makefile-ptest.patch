@@ -1,41 +1,45 @@
-strace: Add ptest
+From 0574ae9926308dcbca78bd8cd0f0f143f19cbcb5 Mon Sep 17 00:00:00 2001
+From: Gabriel Barbu <gabriel.barbu@enea.com>
+Date: Thu, 25 Jul 2013 15:28:33 +0200
+Subject: [PATCH 4/8] strace: Add ptest
 
 Upstream-Status: Inappropriate
 
 Signed-off-by: Gabriel Barbu <gabriel.barbu@enea.com>
 Signed-off-by: Chong Lu <Chong.Lu@windriver.com>
+
 ---
  configure.ac      |  2 +-
  tests/Makefile.am | 18 ++++++++++++++++++
  2 files changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/configure.ac b/configure.ac
-index e73958c..5f0dfee 100644
+index 61d6425..6387c24 100644
 --- a/configure.ac
 +++ b/configure.ac
-@@ -6,7 +6,7 @@ AC_INIT([strace],
+@@ -41,7 +41,7 @@ AC_COPYRIGHT([Copyright (C) 1999-]copyright_year[ The strace developers.])
  AC_CONFIG_SRCDIR([strace.c])
  AC_CONFIG_AUX_DIR([.])
  AC_CONFIG_HEADERS([config.h])
--AM_INIT_AUTOMAKE([foreign dist-xz no-dist-gzip silent-rules parallel-tests])
-+AM_INIT_AUTOMAKE([foreign dist-xz no-dist-gzip silent-rules serial-tests])
+-AM_INIT_AUTOMAKE([foreign nostdinc dist-xz silent-rules parallel-tests])
++AM_INIT_AUTOMAKE([foreign nostdinc dist-xz silent-rules serial-tests])
+ AM_EXTRA_RECURSIVE_TARGETS([check-valgrind])
  AM_MAINTAINER_MODE
  AC_CANONICAL_HOST
- 
 diff --git a/tests/Makefile.am b/tests/Makefile.am
-index ff5e136..984bdb6 100644
+index 5aa7f89..a55a355 100644
 --- a/tests/Makefile.am
 +++ b/tests/Makefile.am
-@@ -101,3 +101,21 @@ EXTRA_DIST = init.sh run.sh \
- 	     $(TESTS)
+@@ -379,3 +379,21 @@ clean-local-check:
+ CLEANFILES = ksysent.h
  
- CLEANFILES = $(TESTS:=.tmp)
+ include ../scno.am
 +
 +buildtest-TESTS: $(check_PROGRAMS) $(TESTS)
 +
 +install-ptest:
 +	install $(BUILDDIR)/strace $(DESTDIR)
-+	install "$(srcdir)/.."/strace-log-merge $(DESTDIR)
++	install $(srcdir)/../strace-log-merge $(DESTDIR)
 +	install -d $(DESTDIR)/$(TESTDIR)
 +	cp $(BUILDDIR)/$(TESTDIR)/Makefile $(DESTDIR)/$(TESTDIR)
 +	sed -i -e 's/^Makefile:/_Makefile:/' $(DESTDIR)/$(TESTDIR)/Makefile
@@ -47,7 +51,7 @@ index ff5e136..984bdb6 100644
 +		install $(srcdir)/$$file $(DESTDIR)/$(TESTDIR); \
 +		sed -i -e 's/$${srcdir=.}/./g' $(DESTDIR)/$(TESTDIR)/$$file; \
 +	done
-+	for i in net net-fd scm_rights-fd sigaction; do sed -i -e 's/$$srcdir/./g' $(DESTDIR)/$(TESTDIR)/$$i.test; done
++	for i in net scm_rights-fd rt_sigaction; do sed -i -e 's/$$srcdir/./g' $(DESTDIR)/$(TESTDIR)/$$i.test; done
 -- 
-1.9.1
+2.13.2
 

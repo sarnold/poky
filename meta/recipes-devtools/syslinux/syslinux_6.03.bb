@@ -1,5 +1,5 @@
 SUMMARY = "Multi-purpose linux bootloader"
-HOMEPAGE = "http://syslinux.zytor.com/"
+HOMEPAGE = "http://www.syslinux.org/"
 LICENSE = "GPLv2+"
 LIC_FILES_CHKSUM = "file://COPYING;md5=0636e73ff0215e8d672dc4c32c317bb3 \
                     file://README;beginline=35;endline=41;md5=558f2c71cb1fb9ba511ccd4858e48e8a"
@@ -23,6 +23,7 @@ SRC_URI = "${KERNELORG_MIRROR}/linux/utils/boot/syslinux/syslinux-${PV}.tar.xz \
            file://0009-linux-syslinux-implement-install_bootblock.patch \
            file://0010-gcc46-compatibility.patch \
            file://0011-mk-MMD-does-not-take-any-arguments.patch \
+           file://syslinux-6.03-sysmacros.patch \
            "
 
 SRC_URI[md5sum] = "92a253df9211e9c20172796ecf388f13"
@@ -37,8 +38,6 @@ EXTRA_OEMAKE = " \
 	BINDIR=${bindir} SBINDIR=${sbindir} LIBDIR=${libdir} \
 	DATADIR=${datadir} MANDIR=${mandir} INCDIR=${includedir} \
 "
-# syslinux uses $LD for linking, strip `-Wl,' so it can work
-export LDFLAGS = "`echo $LDFLAGS | sed 's/-Wl,//g'`"
 
 do_configure() {
 	# drop win32 targets or build fails
@@ -59,11 +58,11 @@ do_compile() {
 
 	# Rebuild only the installer; keep precompiled bootloaders
 	# as per author's request (doc/distrib.txt)
-	oe_runmake CC="${CC} ${CFLAGS}" LDFLAGS="${LDFLAGS}" firmware="bios" installer
+	oe_runmake CC="${CC} ${CFLAGS}" LD="${LD}" LDFLAGS="${LDFLAGS}" firmware="bios" installer
 }
 
 do_install() {
-	oe_runmake CC="${CC} ${CFLAGS}" install INSTALLROOT="${D}" firmware="bios"
+	oe_runmake CC="${CC} ${CFLAGS}" LD="${LD}" install INSTALLROOT="${D}" firmware="bios"
 
 	install -d ${D}${datadir}/syslinux/
 	install -m 644 ${S}/bios/core/ldlinux.sys ${D}${datadir}/syslinux/

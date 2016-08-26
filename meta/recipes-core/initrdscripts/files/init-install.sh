@@ -21,6 +21,8 @@ live_dev_name=${live_dev_name#\/dev/}
 case $live_dev_name in
     mmcblk*)
     ;;
+    nvme*)
+    ;;
     *)
         live_dev_name=${live_dev_name%%[0-9]*}
     ;;
@@ -28,7 +30,13 @@ esac
 
 echo "Searching for hard drives ..."
 
-for device in `ls /sys/block/`; do
+# Some eMMC devices have special sub devices such as mmcblk0boot0 etc
+# we're currently only interested in the root device so pick them wisely
+devices=`ls /sys/block/ | grep -v mmcblk` || true
+mmc_devices=`ls /sys/block/ | grep "mmcblk[0-9]\{1,\}$"` || true
+devices="$devices $mmc_devices"
+
+for device in $devices; do
     case $device in
         loop*)
             # skip loop device
@@ -72,17 +80,23 @@ for hdname in $hdnamelist; do
         cat /sys/block/$hdname/device/uevent
     fi
     echo
-    # Get user choice
-    while true; do
-        echo -n "Do you want to install this image there? [y/n] "
-        read answer
-        if [ "$answer" = "y" -o "$answer" = "n" ]; then
+done
+
+# Get user choice
+while true; do
+    echo "Please select an install target or press n to exit ($hdnamelist ): "
+    read answer
+    if [ "$answer" = "n" ]; then
+        echo "Installation manually aborted."
+        exit 1
+    fi
+    for hdname in $hdnamelist; do
+        if [ "$answer" = "$hdname" ]; then
+            TARGET_DEVICE_NAME=$answer
             break
         fi
-        echo "Please answer y or n"
     done
-    if [ "$answer" = "y" ]; then
-        TARGET_DEVICE_NAME=$hdname
+    if [ -n "$TARGET_DEVICE_NAME" ]; then
         break
     fi
 done
@@ -112,11 +126,11 @@ if [ ! -b /dev/loop0 ] ; then
 fi
 
 mkdir -p /tmp
-if [ ! -L /etc/mtab ]; then
-    cat /proc/mounts > /etc/mtab
+if [ ! -L /etc/mtab ] && [ -e /proc/mounts ]; then
+    ln -sf /proc/mounts /etc/mtab
 fi
 
-disk_size=$(parted ${device} unit mb print | grep Disk | cut -d" " -f 3 | sed -e "s/MB//")
+disk_size=$(parted ${device} unit mb print | grep '^Disk .*: .*MB' | cut -d" " -f 3 | sed -e "s/MB//")
 
 grub_version=$(grub-install -v|sed 's/.* \([0-9]\).*/\1/')
 
@@ -141,8 +155,14 @@ swap_start=$((rootfs_end))
 # 2) they are detected asynchronously (need rootwait)
 rootwait=""
 part_prefix=""
-if [ ! "${device#mmcblk}" = "${device}" ]; then
+if [ ! "${device#/dev/mmcblk}" = "${device}" ] || \
+   [ ! "${device#/dev/nvme}" = "${device}" ]; then
     part_prefix="p"
+    rootwait="rootwait"
+fi
+
+# USB devices also require rootwait
+if [ -n `readlink /dev/disk/by-id/usb* | grep $TARGET_DEVICE_NAME` ]; then
     rootwait="rootwait"
 fi
 
@@ -211,13 +231,13 @@ echo "Copying rootfs files..."
 cp -a /src_root/* /tgt_root
 if [ -d /tgt_root/etc/ ] ; then
     if [ $grub_version -ne 0 ] ; then
-        boot_uuid=$(blkid -o value -s UUID ${device}2)
-        swap_part_uuid=$(blkid -o value -s PARTUUID ${device}4)
+        boot_uuid=$(blkid -o value -s UUID ${bootfs})
+        swap_part_uuid=$(blkid -o value -s PARTUUID ${swap})
         bootdev="UUID=$boot_uuid"
         swapdev=/dev/disk/by-partuuid/$swap_part_uuid
     else
-        bootdev=${device}2
-        swapdev=${device}4
+        bootdev=${bootfs}
+        swapdev=${swap}
     fi
     echo "$swapdev                swap             swap       defaults              0  0" >> /tgt_root/etc/fstab
     echo "$bootdev              /boot            ext3       defaults              1  2" >> /tgt_root/etc/fstab
@@ -234,8 +254,8 @@ mount $bootfs /boot
 echo "Preparing boot partition..."
 if [ -f /etc/grub.d/00_header -a $grub_version -ne 0 ] ; then
     echo "Preparing custom grub2 menu..."
-    root_part_uuid=$(blkid -o value -s PARTUUID ${device}3)
-    boot_uuid=$(blkid -o value -s UUID ${device}2)
+    root_part_uuid=$(blkid -o value -s PARTUUID ${rootfs})
+    boot_uuid=$(blkid -o value -s UUID ${bootfs})
     GRUBCFG="/boot/grub/grub.cfg"
     mkdir -p $(dirname $GRUBCFG)
     cat >$GRUBCFG <<_EOF

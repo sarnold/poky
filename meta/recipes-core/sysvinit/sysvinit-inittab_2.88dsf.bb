@@ -4,7 +4,8 @@ LIC_FILES_CHKSUM = "file://${COREBASE}/meta/files/common-licenses/GPL-2.0;md5=80
 
 PR = "r10"
 
-SRC_URI = "file://inittab"
+SRC_URI = "file://inittab \
+           file://start_getty"
 
 S = "${WORKDIR}"
 
@@ -15,16 +16,19 @@ do_compile() {
 }
 
 do_install() {
-	install -d ${D}${sysconfdir}
+    install -d ${D}${sysconfdir}
     install -m 0644 ${WORKDIR}/inittab ${D}${sysconfdir}/inittab
+    install -d ${D}${base_bindir}
+    install -m 0755 ${WORKDIR}/start_getty ${D}${base_bindir}/start_getty
 
     set -x
     tmp="${SERIAL_CONSOLES}"
     for i in $tmp
     do
 	j=`echo ${i} | sed s/\;/\ /g`
-	label=`echo ${i} | sed -e 's/tty//' -e 's/^.*;//' -e 's/;.*//'`
-	echo "$label:12345:respawn:${base_sbindir}/getty -L ${j}" >> ${D}${sysconfdir}/inittab
+	l=`echo ${i} | sed -e 's/tty//' -e 's/^.*;//' -e 's/;.*//'`
+	label=`echo $l | sed 's/.*\(....\)/\1/'`
+	echo "$label:12345:respawn:${base_bindir}/start_getty ${j} vt102" >> ${D}${sysconfdir}/inittab
     done
 
     if [ "${USE_VT}" = "1" ]; then
@@ -54,9 +58,12 @@ if [ "x$D" = "x" ] && [ -e /proc/consoles ]; then
 	tmp="${SERIAL_CONSOLES_CHECK}"
 	for i in $tmp
 	do
-		j=`echo ${i} | sed s/^.*\;//g`
+		j=`echo ${i} | sed -e s/^.*\;//g -e s/\:.*//g`
+		k=`echo ${i} | sed s/^.*\://g`
 		if [ -z "`grep ${j} /proc/consoles`" ]; then
-			sed -i /^.*${j}$/d /etc/inittab
+			if [ -z "${k}" ] || [ -z "`grep ${k} /proc/consoles`" ] || [ ! -e /dev/${j} ]; then
+				sed -i -e /^.*${j}\ /d -e /^.*${j}$/d /etc/inittab
+			fi
 		fi
 	done
 	kill -HUP 1
@@ -73,7 +80,7 @@ fi
 # Set PACKAGE_ARCH appropriately.
 PACKAGE_ARCH = "${MACHINE_ARCH}"
 
-FILES_${PN} = "${sysconfdir}/inittab"
+FILES_${PN} = "${sysconfdir}/inittab ${base_bindir}/start_getty"
 CONFFILES_${PN} = "${sysconfdir}/inittab"
 
 USE_VT ?= "1"

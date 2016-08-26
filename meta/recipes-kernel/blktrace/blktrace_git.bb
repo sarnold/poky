@@ -1,4 +1,5 @@
 SUMMARY = "Generates traces of I/O traffic on block devices"
+HOMEPAGE = "http://brick.kernel.dk/snaps/"
 LICENSE = "GPLv2"
 LIC_FILES_CHKSUM = "file://COPYING;md5=393a5ca445f6965873eca0259a17f833"
 
@@ -9,7 +10,9 @@ SRCREV = "43fc870ce04e963def45dfc0d1ed4ea21ef10d4b"
 PV = "1.1.0+git${SRCPV}"
 
 SRC_URI = "git://git.kernel.dk/blktrace.git \
-           file://ldflags.patch"
+           file://ldflags.patch \
+           file://0001-include-sys-types.h-for-dev_t-definition.patch \
+"
 
 S = "${WORKDIR}/git"
 

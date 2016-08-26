@@ -9,16 +9,14 @@ LICENSE = "GPL-2.0+ & LGPL-2.1+"
 LICENSE_libkmod = "LGPL-2.1+"
 SECTION = "base"
 
-DEPENDS += "pkgconfig-native"
-
 LIC_FILES_CHKSUM = "file://COPYING;md5=a6f89e2100d9b6cdffcea4f398e37343 \
                     file://libkmod/COPYING;md5=a6f89e2100d9b6cdffcea4f398e37343 \
                    "
-inherit autotools gtk-doc
+inherit autotools gtk-doc pkgconfig manpages
 
-SRCREV = "114ec87c85c35a2bd3682f9f891e494127be6fb5"
+SRCREV = "ef4257b59c4307b8c627d89f3c7f1feedb32582f"
 # Lookout for PV bump too when SRCREV is changed
-PV = "21+git${SRCPV}"
+PV = "24+git${SRCPV}"
 
 SRC_URI = "git://git.kernel.org/pub/scm/utils/kernel/kmod/kmod.git \
            file://depmod-search.conf \
@@ -29,13 +27,16 @@ SRC_URI = "git://git.kernel.org/pub/scm/utils/kernel/kmod/kmod.git \
 S = "${WORKDIR}/git"
 
 EXTRA_AUTORECONF += "--install --symlink"
-EXTRA_OECONF +=" --enable-tools --disable-manpages --with-zlib"
+EXTRA_OECONF +=" --enable-tools --with-zlib"
+
+CACHED_CONFIGUREVARS += "ac_cv_path_DOLT_BASH='/usr/bin/env bash'"
 
 PACKAGECONFIG[debug] = "--enable-debug,--disable-debug"
 PACKAGECONFIG[logging] = " --enable-logging,--disable-logging"
+PACKAGECONFIG[manpages] = "--enable-manpages, --disable-manpages, libxslt-native xmlto-native"
 
 do_configure_prepend () {
-        gtkdocize --docdir ${S}/libkmod/docs || touch ${S}/libkmod/docs/gtk-doc.make
+        gtkdocize --docdir ${S}/libkmod/docs --srcdir ${S}
 }
 
 do_configure_append () {

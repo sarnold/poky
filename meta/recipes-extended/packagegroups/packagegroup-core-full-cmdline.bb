@@ -5,7 +5,6 @@
 SUMMARY = "Standard full-featured Linux system"
 DESCRIPTION = "Package group bringing in packages needed for a more traditional full-featured Linux system"
 PR = "r6"
-LICENSE = "MIT"
 
 inherit packagegroup
 
@@ -32,7 +31,7 @@ python __anonymous () {
     namemap["packagegroup-core-full-cmdline-initscripts"] = "packagegroup-core-initscripts"
     namemap["packagegroup-core-full-cmdline-sys-services"] = "packagegroup-core-sys-services"
 
-    packages = d.getVar("PACKAGES", True).split()
+    packages = d.getVar("PACKAGES").split()
     for pkg in packages:
         if pkg.endswith('-dev'):
             mapped = namemap.get(pkg[:-4], None)
@@ -87,7 +86,6 @@ RDEPENDS_packagegroup-core-full-cmdline-utils = "\
     mc-fish \
     mc-helpers \
     mc-helpers-perl \
-    mc-helpers-python \
     mktemp \
     ncurses \
     net-tools \
@@ -111,7 +109,6 @@ RDEPENDS_packagegroup-core-full-cmdline-extended = "\
     "
 
 RDEPENDS_packagegroup-core-full-cmdline-dev-utils = "\
-    byacc \
     diffutils \
     m4 \
     make \
@@ -144,7 +141,6 @@ RDEPENDS_packagegroup-core-full-cmdline-sys-services = "\
     cronie \
     dbus \
     dbus-glib \
-    python-dbus \
     elfutils \
     gzip \
     less \

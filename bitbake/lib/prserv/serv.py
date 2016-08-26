@@ -1,19 +1,16 @@
 import os,sys,logging
 import signal, time
-from SimpleXMLRPCServer import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
+from xmlrpc.server import SimpleXMLRPCServer, SimpleXMLRPCRequestHandler
 import threading
-import Queue
+import queue
 import socket
-
-try:
-    import sqlite3
-except ImportError:
-    from pysqlite2 import dbapi2 as sqlite3
-
-import bb.server.xmlrpc
+import io
+import sqlite3
+import bb.server.xmlrpcclient
 import prserv
 import prserv.db
 import errno
+import select
 
 logger = logging.getLogger("BitBake.PRserv")
 
@@ -59,13 +56,13 @@ class PRServer(SimpleXMLRPCServer):
         self.register_function(self.quit, "quit")
         self.register_function(self.ping, "ping")
         self.register_function(self.export, "export")
+        self.register_function(self.dump_db, "dump_db")
         self.register_function(self.importone, "importone")
         self.register_introspection_functions()
 
-        self.db = prserv.db.PRData(self.dbfile)
-        self.table = self.db["PRMAIN"]
+        self.quitpipein, self.quitpipeout = os.pipe()
 
-        self.requestqueue = Queue.Queue()
+        self.requestqueue = queue.Queue()
         self.handlerthread = threading.Thread(target = self.process_request_thread)
         self.handlerthread.daemon = False
 
@@ -79,11 +76,15 @@ class PRServer(SimpleXMLRPCServer):
         # 60 iterations between syncs or sync if dirty every ~30 seconds
         iterations_between_sync = 60
 
-        while not self.quit:
+        bb.utils.set_process_name("PRServ Handler")
+
+        while not self.quitflag:
             try:
                 (request, client_address) = self.requestqueue.get(True, 30)
-            except Queue.Empty:
+            except queue.Empty:
                 self.table.sync_if_dirty()
+                continue
+            if request is None:
                 continue
             try:
                 self.finish_request(request, client_address)
@@ -98,11 +99,14 @@ class PRServer(SimpleXMLRPCServer):
             self.table.sync_if_dirty()
 
     def sigint_handler(self, signum, stack):
-        self.table.sync()
+        if self.table:
+            self.table.sync()
 
     def sigterm_handler(self, signum, stack):
-        self.table.sync()
-        raise SystemExit
+        if self.table:
+            self.table.sync()
+        self.quit()
+        self.requestqueue.put((None, None))
 
     def process_request(self, request, client_address):
         self.requestqueue.put((request, client_address))
@@ -114,11 +118,31 @@ class PRServer(SimpleXMLRPCServer):
             logger.error(str(exc))
             return None
 
+    def dump_db(self):
+        """
+        Returns a script (string) that reconstructs the state of the
+        entire database at the time this function is called. The script
+        language is defined by the backing database engine, which is a
+        function of server configuration.
+        Returns None if the database engine does not support dumping to
+        script or if some other error is encountered in processing.
+        """
+        buff = io.StringIO()
+        try:
+            self.table.sync()
+            self.table.dump_db(buff)
+            return buff.getvalue()
+        except Exception as exc:
+            logger.error(str(exc))
+            return None
+        finally:
+            buff.close()
+
     def importone(self, version, pkgarch, checksum, value):
         return self.table.importone(version, pkgarch, checksum, value)
 
     def ping(self):
-        return not self.quit
+        return not self.quitflag
 
     def getinfo(self):
         return (self.host, self.port)
@@ -134,23 +158,39 @@ class PRServer(SimpleXMLRPCServer):
             return None
 
     def quit(self):
-        self.quit=True
+        self.quitflag=True
+        os.write(self.quitpipeout, b"q")
+        os.close(self.quitpipeout)
         return
 
     def work_forever(self,):
-        self.quit = False
-        self.timeout = 0.5
+        self.quitflag = False
+        # This timeout applies to the poll in TCPServer, we need the select 
+        # below to wake on our quit pipe closing. We only ever call into handle_request
+        # if there is data there.
+        self.timeout = 0.01
+
+        bb.utils.set_process_name("PRServ")
+
+        # DB connection must be created after all forks
+        self.db = prserv.db.PRData(self.dbfile)
+        self.table = self.db["PRMAIN"]
 
         logger.info("Started PRServer with DBfile: %s, IP: %s, PORT: %s, PID: %s" %
                      (self.dbfile, self.host, self.port, str(os.getpid())))
 
         self.handlerthread.start()
-        while not self.quit:
-            self.handle_request()
+        while not self.quitflag:
+            ready = select.select([self.fileno(), self.quitpipein], [], [], 30)
+            if self.quitflag:
+                break
+            if self.fileno() in ready[0]:
+                self.handle_request()
         self.handlerthread.join()
         self.db.disconnect()
         logger.info("PRServer: stopping...")
         self.server_close()
+        os.close(self.quitpipein)
         return
 
     def start(self):
@@ -158,6 +198,7 @@ class PRServer(SimpleXMLRPCServer):
             pid = self.daemonize()
         else:
             pid = self.fork()
+            self.pid = pid
 
         # Ensure both the parent sees this and the child from the work_forever log entry above
         logger.info("Started PRServer with DBfile: %s, IP: %s, PORT: %s, PID: %s" %
@@ -209,17 +250,29 @@ class PRServer(SimpleXMLRPCServer):
     def cleanup_handles(self):
         signal.signal(signal.SIGINT, self.sigint_handler)
         signal.signal(signal.SIGTERM, self.sigterm_handler)
-        os.umask(0)
         os.chdir("/")
 
         sys.stdout.flush()
         sys.stderr.flush()
-        si = file('/dev/null', 'r')
-        so = file(self.logfile, 'a+')
-        se = so
-        os.dup2(si.fileno(),sys.stdin.fileno())
-        os.dup2(so.fileno(),sys.stdout.fileno())
-        os.dup2(se.fileno(),sys.stderr.fileno())
+
+        # We could be called from a python thread with io.StringIO as
+        # stdout/stderr or it could be 'real' unix fd forking where we need
+        # to physically close the fds to prevent the program launching us from
+        # potentially hanging on a pipe. Handle both cases.
+        si = open('/dev/null', 'r')
+        try:
+            os.dup2(si.fileno(),sys.stdin.fileno())
+        except (AttributeError, io.UnsupportedOperation):
+            sys.stdin = si
+        so = open(self.logfile, 'a+')
+        try:
+            os.dup2(so.fileno(),sys.stdout.fileno())
+        except (AttributeError, io.UnsupportedOperation):
+            sys.stdout = so
+        try:
+            os.dup2(so.fileno(),sys.stderr.fileno())
+        except (AttributeError, io.UnsupportedOperation):
+            sys.stderr = so
 
         # Clear out all log handlers prior to the fork() to avoid calling
         # event handlers not part of the PRserver
@@ -235,7 +288,7 @@ class PRServer(SimpleXMLRPCServer):
 
         # write pidfile
         pid = str(os.getpid()) 
-        pf = file(self.pidfile, 'w')
+        pf = open(self.pidfile, 'w')
         pf.write("%s\n" % pid)
         pf.close()
 
@@ -264,7 +317,7 @@ class PRServerConnection(object):
             host, port = singleton.getinfo()
         self.host = host
         self.port = port
-        self.connection, self.transport = bb.server.xmlrpc._create_server(self.host, self.port)
+        self.connection, self.transport = bb.server.xmlrpcclient._create_server(self.host, self.port)
 
     def terminate(self):
         try:
@@ -282,6 +335,9 @@ class PRServerConnection(object):
     def export(self,version=None, pkgarch=None, checksum=None, colinfo=True):
         return self.connection.export(version, pkgarch, checksum, colinfo)
 
+    def dump_db(self):
+        return self.connection.dump_db()
+
     def importone(self, version, pkgarch, checksum, value):
         return self.connection.importone(version, pkgarch, checksum, value)
 
@@ -292,7 +348,7 @@ def start_daemon(dbfile, host, port, logfile):
     ip = socket.gethostbyname(host)
     pidfile = PIDPREFIX % (ip, port)
     try:
-        pf = file(pidfile,'r')
+        pf = open(pidfile,'r')
         pid = int(pf.readline().strip())
         pf.close()
     except IOError:
@@ -319,7 +375,7 @@ def stop_daemon(host, port):
     ip = socket.gethostbyname(host)
     pidfile = PIDPREFIX % (ip, port)
     try:
-        pf = file(pidfile,'r')
+        pf = open(pidfile,'r')
         pid = int(pf.readline().strip())
         pf.close()
     except IOError:
@@ -389,7 +445,10 @@ class PRServiceConfigError(Exception):
 def auto_start(d):
     global singleton
 
-    host_params = filter(None, (d.getVar('PRSERV_HOST', True) or '').split(':'))
+    # Shutdown any existing PR Server
+    auto_shutdown()
+
+    host_params = list(filter(None, (d.getVar('PRSERV_HOST') or '').split(':')))
     if not host_params:
         return None
 
@@ -400,7 +459,7 @@ def auto_start(d):
 
     if is_local_special(host_params[0], int(host_params[1])) and not singleton:
         import bb.utils
-        cachedir = (d.getVar("PERSISTENT_DIR", True) or d.getVar("CACHE", True))
+        cachedir = (d.getVar("PERSISTENT_DIR") or d.getVar("CACHE"))
         if not cachedir:
             logger.critical("Please set the 'PERSISTENT_DIR' or 'CACHE' variable")
             raise PRServiceConfigError
@@ -425,7 +484,7 @@ def auto_start(d):
         logger.critical("PRservice %s:%d not available" % (host, port))
         raise PRServiceConfigError
 
-def auto_shutdown(d=None):
+def auto_shutdown():
     global singleton
     if singleton:
         host, port = singleton.getinfo()
@@ -433,6 +492,11 @@ def auto_shutdown(d=None):
             PRServerConnection(host, port).terminate()
         except:
             logger.critical("Stop PRService %s:%d failed" % (host,port))
+
+        try:
+            os.waitpid(singleton.prserv.pid, 0)
+        except ChildProcessError:
+            pass
         singleton = None
 
 def ping(host, port):

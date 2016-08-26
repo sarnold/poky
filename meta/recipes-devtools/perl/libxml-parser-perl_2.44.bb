@@ -1,9 +1,10 @@
 SUMMARY = "XML::Parser - A perl module for parsing XML documents"
+HOMEPAGE = "https://libexpat.github.io/"
 SECTION = "libs"
 LICENSE = "Artistic-1.0 | GPL-1.0+"
 LIC_FILES_CHKSUM = "file://README;beginline=2;endline=6;md5=c8767d7516229f07b26e42d1cf8b51f1"
 
-DEPENDS += "expat expat-native"
+DEPENDS += "expat"
 
 SRC_URI = "http://www.cpan.org/modules/by-module/XML/XML-Parser-${PV}.tar.gz"
 SRC_URI[md5sum] = "af4813fe3952362451201ced6fbce379"
@@ -20,6 +21,8 @@ inherit cpan
 do_configure_append() {
 	sed 's:--sysroot=.*\(\s\|$\):--sysroot=${STAGING_DIR_TARGET} :g' -i Makefile Expat/Makefile
 	sed 's:^FULL_AR = .*:FULL_AR = ${AR}:g' -i Expat/Makefile
+	# make sure these two do not build in parallel
+	sed 's!^$(INST_DYNAMIC):!$(INST_DYNAMIC): $(BOOTSTRAP)!' -i Expat/Makefile
 }
 
 do_compile() {
@@ -31,7 +34,4 @@ do_compile_class-native() {
 	cpan_do_compile
 }
 
-FILES_${PN}-dbg += "${libdir}/perl/vendor_perl/*/auto/XML/Parser/Expat/.debug/"
-
-BBCLASSEXTEND="native"
-
+BBCLASSEXTEND="native nativesdk"

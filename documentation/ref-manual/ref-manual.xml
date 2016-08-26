@@ -22,11 +22,11 @@
 
         <authorgroup>
             <author>
-                <firstname>Richard</firstname> <surname>Purdie</surname>
+                <firstname>Scott</firstname> <surname>Rifenbark</surname>
                 <affiliation>
-                    <orgname>Linux Foundation</orgname>
+                    <orgname>Scotty's Documentation Services, INC</orgname>
                 </affiliation>
-                <email>richard.purdie@linuxfoundation.org</email>
+                <email>srifenbark@gmail.com</email>
             </author>
 
         </authorgroup>
@@ -97,6 +97,26 @@
                 <date>October 2015</date>
                 <revremark>Released with the Yocto Project 2.0 Release.</revremark>
             </revision>
+            <revision>
+                <revnumber>2.1</revnumber>
+                <date>April 2016</date>
+                <revremark>Released with the Yocto Project 2.1 Release.</revremark>
+            </revision>
+            <revision>
+                <revnumber>2.2</revnumber>
+                <date>October 2016</date>
+                <revremark>Released with the Yocto Project 2.2 Release.</revremark>
+            </revision>
+            <revision>
+                <revnumber>2.3</revnumber>
+                <date>May 2017</date>
+                <revremark>Released with the Yocto Project 2.3 Release.</revremark>
+            </revision>
+            <revision>
+                <revnumber>2.4</revnumber>
+                <date>October 2017</date>
+                <revremark>Released with the Yocto Project 2.4 Release.</revremark>
+            </revision>
         </revhistory>
 
     <copyright>
@@ -109,12 +129,34 @@
         Permission is granted to copy, distribute and/or modify this document under
         the terms of the <ulink type="http" url="http://creativecommons.org/licenses/by-sa/2.0/uk/">Creative Commons Attribution-Share Alike 2.0 UK: England &amp; Wales</ulink> as published by Creative Commons.
       </para>
-      <note>
-          For the latest version of this manual associated with this
-          Yocto Project release, see the
-          <ulink url='&YOCTO_DOCS_REF_URL;'>Yocto Project Reference Manual</ulink>
-          from the Yocto Project website.
-      </note>
+           <note><title>Manual Notes</title>
+               <itemizedlist>
+                   <listitem><para>
+                       This version of the
+                       <emphasis>Yocto Project Reference Manual</emphasis>
+                       is for the &YOCTO_DOC_VERSION; release of the
+                       Yocto Project.
+                       To be sure you have the latest version of the manual
+                       for this release, use the manual from the
+                       <ulink url='&YOCTO_HOME_URL;/documentation'>Yocto Project documentation page</ulink>.
+                       </para></listitem>
+                   <listitem><para>
+                       For manuals associated with other releases of the Yocto
+                       Project, go to the
+                       <ulink url='&YOCTO_HOME_URL;/documentation'>Yocto Project documentation page</ulink>
+                       and use the drop-down "Active Releases" button
+                       and choose the manual associated with the desired
+                       Yocto Project.
+                       </para></listitem>
+                   <listitem><para>
+                        To report any inaccuracies or problems with this
+                        manual, send an email to the Yocto Project
+                        discussion group at
+                        <filename>yocto@yoctoproject.com</filename> or log into
+                        the freenode <filename>#yocto</filename> channel.
+                        </para></listitem>
+               </itemizedlist>
+           </note>
     </legalnotice>
 
     </bookinfo>
@@ -123,9 +165,11 @@
 
     <xi:include href="usingpoky.xml"/>
 
-    <xi:include href="closer-look.xml"/>
+    <xi:include href="ref-development-environment.xml"/>
 
     <xi:include href="technical-details.xml"/>
+
+    <xi:include href="ref-release-process.xml"/>
 
     <xi:include href="migration.xml"/>
 
@@ -134,6 +178,10 @@
     <xi:include href="ref-classes.xml"/>
 
     <xi:include href="ref-tasks.xml"/>
+
+    <xi:include href="ref-devtool-reference.xml"/>
+
+    <xi:include href="ref-kickstart.xml"/>
 
     <xi:include href="ref-qa-checks.xml"/>
 

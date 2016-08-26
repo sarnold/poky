@@ -1,4 +1,5 @@
 SUMMARY = "Utilities for managing processes on your system"
+HOMEPAGE = "http://psmisc.sf.net/"
 DESCRIPTION = "The psmisc package contains utilities for managing processes on your \
 system: pstree, killall and fuser.  The pstree command displays a tree \
 structure of all of the running processes on your system.  The killall \
@@ -14,6 +15,9 @@ SRC_URI = "${SOURCEFORGE_MIRROR}/psmisc/psmisc-${PV}.tar.gz"
 S = "${WORKDIR}/psmisc-${PV}"
 
 inherit autotools gettext
+
+PACKAGECONFIG ??= "${@bb.utils.filter('DISTRO_FEATURES', 'ipv6', d)}"
+PACKAGECONFIG[ipv6] = "--enable-ipv6,--disable-ipv6,"
 
 ALLOW_EMPTY_${PN} = "1"
 
