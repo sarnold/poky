@@ -11,7 +11,7 @@ SRC_URI += "file://acinclude.m4 \
             file://Revert-mke2fs-enable-the-metadata_csum-and-64bit-fea.patch \
             file://mkdir_p.patch \
             file://0001-e2fsck-exit-with-exit-status-0-if-no-errors-were-fix.patch \
-            file://0001-misc-rename-copy_file_range-to-copy_file_chunk.patch \
+            file://e2fsprogs-fix-missing-includes-for-major.patch \
 "
 
 SRC_URI_append_class-native = " file://e2fsprogs-fix-missing-check-for-permission-denied.patch"
@@ -27,6 +27,12 @@ EXTRA_OECONF_darwin = "--libdir=${base_libdir} --sbindir=${base_sbindir} --enabl
 
 PACKAGECONFIG ??= ""
 PACKAGECONFIG[fuse] = '--enable-fuse2fs,--disable-fuse2fs,fuse'
+
+CACHED_CONFIGUREVARS = " \
+    ac_cv_lib_uuid_uuid_generate=yes \
+    ac_cv_lib_blkid_blkid_get_cache=yes \
+"
+#CPPFLAGS_append_class-native = " -D_GNU_SOURCE"
 
 do_configure_prepend () {
 	cp ${WORKDIR}/acinclude.m4 ${S}/
