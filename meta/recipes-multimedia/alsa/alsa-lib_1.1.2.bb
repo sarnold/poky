@@ -24,6 +24,8 @@ EXTRA_OECONF = "--disable-python"
 
 EXTRA_OECONF_append_libc-uclibc = " --with-versioned=no "
 
+CFLAGS += " -DHAVE_SYS_TYPES_H=1 "
+
 PACKAGES =+ "alsa-server libasound alsa-conf-base alsa-conf alsa-doc"
 FILES_${PN} += "${libdir}/${BPN}/smixer/*.so"
 FILES_${PN}-dev += "${libdir}/${BPN}/smixer/*.la"

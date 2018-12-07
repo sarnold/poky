@@ -41,6 +41,9 @@ AUDIOMODS += "${@bb.utils.contains('PACKAGECONFIG', 'portaudio', 'portaudio', ''
 AUDIOMODS += "${@bb.utils.contains('PACKAGECONFIG', 'pulseaudio', 'pulse', '', d)}"
 AUDIOMODS += "${@bb.utils.contains('PACKAGECONFIG', 'sdl', 'sdl', '', d)}"
 
+CACHED_CONFIGUREVARS_append_libc-musl = "ac_cv_header_sys_types_h=yes"
+CPPFLAGS_append_libc-musl = "-D_GNU_SOURCE"
+
 EXTRA_OECONF = " \
     --enable-shared \
     --with-audio='${AUDIOMODS}' \
