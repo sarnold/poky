@@ -18,3 +18,13 @@
  #include <sys/types.h>
  #endif
  
+--- ./debugfs/debugfs.c.orig	2018-12-08 22:00:01.442069224 -0800
++++ ./debugfs/debugfs.c	2018-12-08 22:01:09.455585020 -0800
+@@ -15,6 +15,7 @@
+ #include <ctype.h>
+ #include <string.h>
+ #include <time.h>
++#include <sys/sysmacros.h>
+ #include <libgen.h>
+ #ifdef HAVE_GETOPT_H
+ #include <getopt.h>
