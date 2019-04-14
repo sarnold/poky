@@ -17,6 +17,7 @@ SRC_URI[sha256sum] = "4073d9c60a43872f6f5a3a322f5ea21ab7f0869d2ed25e79c3eb8521fa
 
 inherit autotools pkgconfig
 
+DEPENDS += "libtool"
 # The options should be mutually exclusive for configuration script.
 # If both alsa and pulseaudio are specified (as in the default distro features)
 # pulseaudio takes precedence.
